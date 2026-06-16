@@ -1,0 +1,4 @@
+localref
+tmp
+*.pyc
+.venv
