@@ -6,4 +6,5 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "cocotb~=2.0",
+    "cocotbext-axi>=0.1.28",
 ]
