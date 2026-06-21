@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 import enum
 import struct
 from dataclasses import dataclass
+from pathlib import Path
 
 try:
     from .packet_gen import MESSAGE_LENGTHS, EventKind, MsgType, parseMsgType
@@ -53,6 +55,76 @@ class ItchEvent:
     match_number: int = 0
     stock: bytes = b"\x00" * 8
     valid_mask: int = 0
+
+
+def _event_kind_char(kind: EventKind) -> str:
+    if kind is EventKind.ADD:
+        return "A"
+    if kind is EventKind.EXECUTE:
+        return "E"
+    if kind is EventKind.CANCEL:
+        return "X"
+    if kind is EventKind.DELETE:
+        return "D"
+    if kind is EventKind.REPLACE:
+        return "U"
+    return "*"
+
+
+def _valid_or_n(valid_mask: int, bit: int, value: int) -> str:
+    return str(value) if valid_mask & bit else "N"
+
+
+def _format_stock(stock: bytes) -> str:
+    """Mirror the C++ normalized output: print leading A-Z bytes only."""
+
+    chars: list[str] = []
+    for byte in stock[:8]:
+        if ord("A") <= byte <= ord("Z"):
+            chars.append(chr(byte))
+        else:
+            break
+    return "".join(chars)
+
+
+def format_event(event: ItchEvent) -> str:
+    """Format one event like cpp/itch_spec.cpp operator<<.
+
+    The output intentionally omits tracking_number because the current C++
+    normalized event print format omits it too.
+    """
+
+    side = "N"
+    if event.valid_mask & VALID_SIDE and event.side is not None:
+        side = "B" if event.side is Side.BUY else "S"
+
+    price = "N"
+    if event.valid_mask & VALID_PRICE:
+        price = f"{event.price / 10_000:.4f}"
+
+    stock = "N"
+    if event.valid_mask & VALID_STOCK:
+        stock = _format_stock(event.stock)
+
+    return " ".join(
+        [
+            _event_kind_char(event.kind),
+            str(event.stock_locate),
+            str(event.timestamp),
+            _valid_or_n(event.valid_mask, VALID_ORDER_REF, event.order_ref),
+            _valid_or_n(event.valid_mask, VALID_NEW_ORDER_REF, event.new_order_ref),
+            side,
+            _valid_or_n(event.valid_mask, VALID_QTY, event.qty),
+            price,
+            _valid_or_n(event.valid_mask, VALID_MATCH_NUMBER, event.match_number),
+            stock,
+            f"{event.valid_mask:08b}",
+        ]
+    )
+
+
+def format_stream(stream: bytes) -> str:
+    return "\n".join(format_event(event) for event in parse_stream(stream))
 
 
 @dataclass(frozen=True)
@@ -261,3 +333,23 @@ class TinyLob:
             qty=event.qty,
             price=event.price,
         )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Parse a simplified ITCH binary stream and print the same normalized "
+            "event format as cpp/itch_spec.cpp."
+        )
+    )
+    parser.add_argument("bin_file", type=Path, help="binary ITCH payload stream")
+    args = parser.parse_args(argv)
+
+    output = format_stream(args.bin_file.read_bytes())
+    if output:
+        print(output)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -90,6 +90,34 @@ class ReferenceParserTests(unittest.TestCase):
         self.assertEqual(events[3].valid_mask, ref_parser.REPLACE_VALID_MASK)
         self.assertEqual(events[4].valid_mask, ref_parser.DELETE_VALID_MASK)
 
+    def test_format_event_matches_cpp_normalized_output(self) -> None:
+        event = ref_parser.parse_packet(
+            packet_gen.gen_add(1, 10, 100, 1001, "B", 100, "AAPL", 1_000_000)
+        )
+
+        self.assertEqual(
+            ref_parser.format_event(event),
+            "A 1 100 1001 N B 100 100.0000 N AAPL 01011101",
+        )
+
+    def test_format_stream_reads_back_to_back_binary_messages(self) -> None:
+        stream = packet_gen.gen_stream(
+            [
+                packet_gen.gen_execute(1, 11, 101, 1001, 30, 9001),
+                packet_gen.gen_delete(1, 12, 102, 1001),
+            ]
+        )
+
+        self.assertEqual(
+            ref_parser.format_stream(stream),
+            "\n".join(
+                [
+                    "E 1 101 1001 N N 30 N 9001 N 00101001",
+                    "D 1 102 1001 N N N N N N 00000001",
+                ]
+            ),
+        )
+
     def test_smoke_sequence_leaves_expected_book_state(self) -> None:
         packets = [
             packet_gen.gen_add(1, 1, 1, 1001, "B", 100, "AAPL", 1_000_000),

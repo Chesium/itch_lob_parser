@@ -23,13 +23,38 @@ char evkind2char(EventKind kind)
 
 std::ostream &operator<<(std::ostream &out, const ItchEvent &ev)
 {
-  out << evkind2char(ev.kind) << ' ' << ev.stock_locate << ' ' << ev.timestamp << ' ' << (ev.valid_mask & 0b1 ? ev.order_ref : 'N') << ' ' << (ev.valid_mask & 0b10 ? ev.new_order_ref : 'N') << ' ';
+  out << evkind2char(ev.kind) << ' ' << ev.stock_locate << ' ' << ev.timestamp << ' ';
+  if (ev.valid_mask & 0b1)
+    out << ev.order_ref;
+  else
+    out << 'N';
+  out << ' ';
+  if (ev.valid_mask & 0b10)
+    out << ev.new_order_ref;
+  else
+    out << 'N';
+  out << ' ';
   if (ev.side && (ev.valid_mask & 0b100))
     out << (*ev.side ? 'S' : 'B');
   else
     out << 'N';
   out << std::fixed << std::setprecision(4);
-  out << ' ' << ((ev.valid_mask & 0b1000) ? ev.qty : 'N') << ' ' << ((ev.valid_mask & 0b10000) ? (double)ev.price / 10000 : 'N') << ' ' << ((ev.valid_mask & 0b100000) ? ev.match_number : 'N') << ' ';
+  out << ' ';
+  if (ev.valid_mask & 0b1000)
+    out << ev.qty;
+  else
+    out << 'N';
+  out << ' ';
+  if (ev.valid_mask & 0b10000)
+    out << (double)ev.price / 10000;
+  else
+    out << 'N';
+  out << ' ';
+  if (ev.valid_mask & 0b100000)
+    out << ev.match_number;
+  else
+    out << 'N';
+  out << ' ';
   if (ev.valid_mask & 0b1000000)
   {
     for (int i = 0; i < 8; i++)
