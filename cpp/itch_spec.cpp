@@ -2,9 +2,28 @@
 #include <iostream>
 #include <iomanip>
 
+char evkind2char(EventKind kind)
+{
+  switch (kind)
+  {
+  case ADD:
+    return 'A';
+  case EXECUTE:
+    return 'E';
+  case CANCEL:
+    return 'X';
+  case DELETE:
+    return 'D';
+  case REPLACE:
+    return 'U';
+  default:
+    return '*';
+  }
+}
+
 std::ostream &operator<<(std::ostream &out, const ItchEvent &ev)
 {
-  out << ev.kind << ' ' << ev.stock_locate << ' ' << ev.timestamp << ' ' << (ev.valid_mask & 0b1 ? ev.order_ref : 'N') << ' ' << (ev.valid_mask & 0b10 ? ev.new_order_ref : 'N') << ' ';
+  out << evkind2char(ev.kind) << ' ' << ev.stock_locate << ' ' << ev.timestamp << ' ' << (ev.valid_mask & 0b1 ? ev.order_ref : 'N') << ' ' << (ev.valid_mask & 0b10 ? ev.new_order_ref : 'N') << ' ';
   if (ev.side && (ev.valid_mask & 0b100))
     out << (*ev.side ? 'S' : 'B');
   else

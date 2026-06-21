@@ -13,6 +13,8 @@ enum EventKind
   ERROR = 7
 };
 
+char evkind2char(EventKind kind);
+
 enum Side
 {
   BUY = 0,
