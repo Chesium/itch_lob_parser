@@ -4,7 +4,9 @@ TOPLEVEL_LANG := verilog
 ROOT_DIR := $(abspath ../..)
 RTL_DIR := $(ROOT_DIR)/rtl
 
-VERILOG_SOURCES := $(RTL_DIR)/itch_parser_core.sv
+VERILOG_SOURCES := \
+	$(RTL_DIR)/itch_parser_pkg.sv \
+	$(RTL_DIR)/itch_parser_core.sv
 
 TOPLEVEL := itch_parser_core
 COCOTB_TEST_MODULES := test_itch_parser_core

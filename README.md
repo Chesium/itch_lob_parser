@@ -68,3 +68,20 @@ python3 scripts/gen_cpp_parser_fixtures.py
 ./build/itch_cli scripts/data/smoke_all_types.bin
 ./build/itch_cli scripts/data/max_width_add.bin
 ```
+
+## RTL Parser Cores
+
+`rtl/itch_parser_core_legacy.sv` keeps the first working parser
+microarchitecture. It decodes fields with direct byte-offset `case` statements,
+which is useful as a simple baseline for later design comparisons.
+
+`rtl/itch_parser_core.sv` is the maintained parser core with the same external
+interface and behavior. It uses `rtl/itch_parser_pkg.sv` for named protocol
+layout constants, valid masks, error codes, helper functions, and packed
+normalized event state, so field layout changes are localized.
+
+Run the RTL validation workflow with:
+
+```bash
+uv run make -C scripts/cocotb
+```
