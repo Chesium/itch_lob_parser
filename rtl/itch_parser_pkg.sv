@@ -24,6 +24,26 @@ package itch_parser_pkg;
     logic [7:0]  valid_mask;
   } itch_event_t;
 
+  typedef enum logic [3:0] {
+    FIELD_NONE,
+    FIELD_STOCK_LOCATE,
+    FIELD_TRACKING_NUMBER,
+    FIELD_TIMESTAMP,
+    FIELD_ORDER_REF,
+    FIELD_NEW_ORDER_REF,
+    FIELD_SIDE,
+    FIELD_QTY,
+    FIELD_PRICE,
+    FIELD_MATCH_NUMBER,
+    FIELD_STOCK
+  } field_id_t;
+
+  typedef struct packed {
+    field_id_t  field;
+    logic [5:0] start;
+    logic [5:0] len;
+  } field_desc_t;
+
   localparam logic [7:0] MASK_ADD = 8'b01011101;
   localparam logic [7:0] MASK_EXECUTE = 8'b00101001;
   localparam logic [7:0] MASK_CANCEL = 8'b00001001;
@@ -41,47 +61,197 @@ package itch_parser_pkg;
   localparam logic [5:0] LEN_DELETE = 6'd19;
   localparam logic [5:0] LEN_REPLACE = 6'd35;
 
-  localparam int unsigned OFF_STOCK_LOCATE = 1;
-  localparam int unsigned OFF_TRACKING_NUMBER = 3;
-  localparam int unsigned OFF_TIMESTAMP = 5;
-  localparam int unsigned OFF_ORDER_REF = 11;
+  localparam logic [5:0] OFF_STOCK_LOCATE = 6'd1;
+  localparam logic [5:0] OFF_TRACKING_NUMBER = 6'd3;
+  localparam logic [5:0] OFF_TIMESTAMP = 6'd5;
+  localparam logic [5:0] OFF_ORDER_REF = 6'd11;
 
-  localparam int unsigned OFF_ADD_SIDE = 19;
-  localparam int unsigned OFF_ADD_QTY = 20;
-  localparam int unsigned OFF_ADD_STOCK = 24;
-  localparam int unsigned OFF_ADD_PRICE = 32;
+  localparam logic [5:0] OFF_ADD_SIDE = 6'd19;
+  localparam logic [5:0] OFF_ADD_QTY = 6'd20;
+  localparam logic [5:0] OFF_ADD_STOCK = 6'd24;
+  localparam logic [5:0] OFF_ADD_PRICE = 6'd32;
 
-  localparam int unsigned OFF_EXEC_QTY = 19;
-  localparam int unsigned OFF_EXEC_MATCH_NUMBER = 23;
+  localparam logic [5:0] OFF_EXEC_QTY = 6'd19;
+  localparam logic [5:0] OFF_EXEC_MATCH_NUMBER = 6'd23;
 
-  localparam int unsigned OFF_CANCEL_QTY = 19;
+  localparam logic [5:0] OFF_CANCEL_QTY = 6'd19;
 
-  localparam int unsigned OFF_REPLACE_NEW_ORDER_REF = 19;
-  localparam int unsigned OFF_REPLACE_QTY = 27;
-  localparam int unsigned OFF_REPLACE_PRICE = 31;
+  localparam logic [5:0] OFF_REPLACE_NEW_ORDER_REF = 6'd19;
+  localparam logic [5:0] OFF_REPLACE_QTY = 6'd27;
+  localparam logic [5:0] OFF_REPLACE_PRICE = 6'd31;
 
-  localparam int unsigned LEN_U16 = 2;
-  localparam int unsigned LEN_U32 = 4;
-  localparam int unsigned LEN_U48 = 6;
-  localparam int unsigned LEN_U64 = 8;
-  localparam int unsigned LEN_SIDE = 1;
-  localparam int unsigned LEN_STOCK = 8;
+  localparam logic [5:0] LEN_U16 = 6'd2;
+  localparam logic [5:0] LEN_U32 = 6'd4;
+  localparam logic [5:0] LEN_U48 = 6'd6;
+  localparam logic [5:0] LEN_U64 = 6'd8;
+  localparam logic [5:0] LEN_SIDE = 6'd1;
+  localparam logic [5:0] LEN_STOCK = 6'd8;
 
-  function automatic logic is_in_field(input logic [5:0] offset, input int unsigned start,
-                                       input int unsigned len);
-    int unsigned offset_i;
+  localparam int unsigned COMMON_FIELD_COUNT = 4;
+  localparam int unsigned ADD_FIELD_COUNT = 4;
+  localparam int unsigned EXEC_FIELD_COUNT = 2;
+  localparam int unsigned CANCEL_FIELD_COUNT = 1;
+  localparam int unsigned DELETE_FIELD_COUNT = 0;
+  localparam int unsigned REPLACE_FIELD_COUNT = 3;
+
+  function automatic field_desc_t make_field_desc(input field_id_t field, input logic [5:0] start,
+                                                  input logic [5:0] len);
+    field_desc_t desc;
     begin
-      offset_i = int'(offset);
-      return (offset_i >= start) && (offset_i < (start + len));
+      desc.field = field;
+      desc.start = start;
+      desc.len   = len;
+      return desc;
     end
   endfunction
 
-  function automatic int unsigned be_lsb(input logic [5:0] offset, input int unsigned start,
-                                         input int unsigned len);
-    int unsigned byte_index;
+  function automatic field_desc_t null_field_desc();
     begin
-      byte_index = int'(offset) - start;
-      return 8 * (len - 1 - byte_index);
+      return make_field_desc(FIELD_NONE, 0, 0);
+    end
+  endfunction
+
+  function automatic field_desc_t common_field_desc(input int unsigned index);
+    begin
+      unique case (index)
+        0: return make_field_desc(FIELD_STOCK_LOCATE, OFF_STOCK_LOCATE, LEN_U16);
+        1: return make_field_desc(FIELD_TRACKING_NUMBER, OFF_TRACKING_NUMBER, LEN_U16);
+        2: return make_field_desc(FIELD_TIMESTAMP, OFF_TIMESTAMP, LEN_U48);
+        3: return make_field_desc(FIELD_ORDER_REF, OFF_ORDER_REF, LEN_U64);
+        default: return null_field_desc();
+      endcase
+    end
+  endfunction
+
+  function automatic int unsigned msg_field_count(input msg_kind_t kind);
+    begin
+      unique case (kind)
+        MSG_ADD:     return ADD_FIELD_COUNT;
+        MSG_EXECUTE: return EXEC_FIELD_COUNT;
+        MSG_CANCEL:  return CANCEL_FIELD_COUNT;
+        MSG_DELETE:  return DELETE_FIELD_COUNT;
+        MSG_REPLACE: return REPLACE_FIELD_COUNT;
+        default:     return 0;
+      endcase
+    end
+  endfunction
+
+  function automatic field_desc_t msg_field_desc(input msg_kind_t kind, input int unsigned index);
+    begin
+      unique case (kind)
+        MSG_ADD: begin
+          unique case (index)
+            0: return make_field_desc(FIELD_SIDE, OFF_ADD_SIDE, LEN_SIDE);
+            1: return make_field_desc(FIELD_QTY, OFF_ADD_QTY, LEN_U32);
+            2: return make_field_desc(FIELD_STOCK, OFF_ADD_STOCK, LEN_STOCK);
+            3: return make_field_desc(FIELD_PRICE, OFF_ADD_PRICE, LEN_U32);
+            default: return null_field_desc();
+          endcase
+        end
+        MSG_EXECUTE: begin
+          unique case (index)
+            0: return make_field_desc(FIELD_QTY, OFF_EXEC_QTY, LEN_U32);
+            1: return make_field_desc(FIELD_MATCH_NUMBER, OFF_EXEC_MATCH_NUMBER, LEN_U64);
+            default: return null_field_desc();
+          endcase
+        end
+        MSG_CANCEL: begin
+          unique case (index)
+            0: return make_field_desc(FIELD_QTY, OFF_CANCEL_QTY, LEN_U32);
+            default: return null_field_desc();
+          endcase
+        end
+        MSG_REPLACE: begin
+          unique case (index)
+            0: return make_field_desc(FIELD_NEW_ORDER_REF, OFF_REPLACE_NEW_ORDER_REF, LEN_U64);
+            1: return make_field_desc(FIELD_QTY, OFF_REPLACE_QTY, LEN_U32);
+            2: return make_field_desc(FIELD_PRICE, OFF_REPLACE_PRICE, LEN_U32);
+            default: return null_field_desc();
+          endcase
+        end
+        default: return null_field_desc();
+      endcase
+    end
+  endfunction
+
+  function automatic logic is_in_field(input logic [5:0] offset, input logic [5:0] start,
+                                       input logic [5:0] len);
+    begin
+      return (offset >= start) && (offset < (start + len));
+    end
+  endfunction
+
+  function automatic int unsigned be_lsb(input logic [5:0] offset, input logic [5:0] start,
+                                         input logic [5:0] len);
+    logic [5:0] byte_index;
+    begin
+      byte_index = offset - start;
+      return 8 * (int'(len) - 1 - int'(byte_index));
+    end
+  endfunction
+
+  function automatic logic is_in_desc(input logic [5:0] offset, input field_desc_t desc);
+    begin
+      return (desc.field != FIELD_NONE) && is_in_field(offset, desc.start, desc.len);
+    end
+  endfunction
+
+  function automatic int unsigned desc_be_lsb(input logic [5:0] offset, input field_desc_t desc);
+    begin
+      return be_lsb(offset, desc.start, desc.len) + ((desc.field == FIELD_NONE) ? 0 : 0);
+    end
+  endfunction
+
+  function automatic void find_common_field(input logic [5:0] offset, output field_desc_t desc,
+                                            output logic found);
+    field_desc_t candidate;
+    begin
+      desc  = null_field_desc();
+      found = 1'b0;
+      for (int unsigned i = 0; i < COMMON_FIELD_COUNT; i++) begin
+        candidate = common_field_desc(i);
+        if (!found && is_in_desc(offset, candidate)) begin
+          desc  = candidate;
+          found = 1'b1;
+        end
+      end
+    end
+  endfunction
+
+  function automatic void find_msg_field(input msg_kind_t kind, input logic [5:0] offset,
+                                         output field_desc_t desc, output logic found);
+    field_desc_t candidate;
+    begin
+      desc  = null_field_desc();
+      found = 1'b0;
+      for (int unsigned i = 0; i < 4; i++) begin
+        if (i < msg_field_count(kind)) begin
+          candidate = msg_field_desc(kind, i);
+          if (!found && is_in_desc(offset, candidate)) begin
+            desc  = candidate;
+            found = 1'b1;
+          end
+        end
+      end
+    end
+  endfunction
+
+  function automatic void find_active_field(input msg_kind_t kind, input logic [5:0] offset,
+                                            output field_desc_t desc, output logic found);
+    field_desc_t common_desc;
+    field_desc_t message_desc;
+    logic        common_found;
+    logic        message_found;
+    begin
+      find_common_field(offset, common_desc, common_found);
+      find_msg_field(kind, offset, message_desc, message_found);
+      if (common_found) begin
+        desc  = common_desc;
+        found = 1'b1;
+      end else begin
+        desc  = message_desc;
+        found = message_found;
+      end
     end
   endfunction
 

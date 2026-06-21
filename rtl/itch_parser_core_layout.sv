@@ -1,4 +1,4 @@
-module itch_parser_core (
+module itch_parser_core_layout (
 
     input logic clk,   // Synchronous clock
     input logic rst_n, // System reset, active low
@@ -51,9 +51,6 @@ module itch_parser_core (
   logic        [7:0] decoded_mask;
   logic              decoded_error;
 
-  field_desc_t       active_desc;
-  logic              active_found;
-
   wire               accept_byte = s_axis_tvalid && s_axis_tready;
   wire               last_byte = accept_byte && (offset == (msg_len - 6'd1));
 
@@ -74,7 +71,6 @@ module itch_parser_core (
 
   always_comb begin
     decode_msg_type(s_axis_tdata, decoded_kind, decoded_len, decoded_mask, decoded_error);
-    find_active_field(event_q.kind, offset, active_desc, active_found);
   end
 
   function automatic itch_event_t empty_event();
@@ -131,24 +127,20 @@ module itch_parser_core (
               error_pending <= 1'b1;
             end
 
-            if (active_found) begin
-              unique case (active_desc.field)
-                FIELD_STOCK_LOCATE:
-                event_q.stock_locate[desc_be_lsb(offset, active_desc)+:8] <= s_axis_tdata;
+            if (is_in_field(offset, OFF_STOCK_LOCATE, LEN_U16))
+              event_q.stock_locate[be_lsb(offset, OFF_STOCK_LOCATE, LEN_U16)+:8] <= s_axis_tdata;
+            if (is_in_field(offset, OFF_TRACKING_NUMBER, LEN_U16))
+              event_q.tracking_number[be_lsb(
+                  offset, OFF_TRACKING_NUMBER, LEN_U16
+              )+:8] <= s_axis_tdata;
+            if (is_in_field(offset, OFF_TIMESTAMP, LEN_U48))
+              event_q.timestamp[be_lsb(offset, OFF_TIMESTAMP, LEN_U48)+:8] <= s_axis_tdata;
+            if (is_in_field(offset, OFF_ORDER_REF, LEN_U64))
+              event_q.order_ref[be_lsb(offset, OFF_ORDER_REF, LEN_U64)+:8] <= s_axis_tdata;
 
-                FIELD_TRACKING_NUMBER:
-                event_q.tracking_number[desc_be_lsb(offset, active_desc)+:8] <= s_axis_tdata;
-
-                FIELD_TIMESTAMP:
-                event_q.timestamp[desc_be_lsb(offset, active_desc)+:8] <= s_axis_tdata;
-
-                FIELD_ORDER_REF:
-                event_q.order_ref[desc_be_lsb(offset, active_desc)+:8] <= s_axis_tdata;
-
-                FIELD_NEW_ORDER_REF:
-                event_q.new_order_ref[desc_be_lsb(offset, active_desc)+:8] <= s_axis_tdata;
-
-                FIELD_SIDE: begin
+            unique case (event_q.kind)
+              MSG_ADD: begin
+                if (is_in_field(offset, OFF_ADD_SIDE, LEN_SIDE)) begin
                   unique case (s_axis_tdata)
                     8'h42: event_q.side <= 1'b0;  // B: Buy
                     8'h53: event_q.side <= 1'b1;  // S: Sell
@@ -159,20 +151,42 @@ module itch_parser_core (
                     end
                   endcase
                 end
+                if (is_in_field(offset, OFF_ADD_QTY, LEN_U32))
+                  event_q.qty[be_lsb(offset, OFF_ADD_QTY, LEN_U32)+:8] <= s_axis_tdata;
+                if (is_in_field(offset, OFF_ADD_STOCK, LEN_STOCK))
+                  event_q.stock[be_lsb(offset, OFF_ADD_STOCK, LEN_STOCK)+:8] <= s_axis_tdata;
+                if (is_in_field(offset, OFF_ADD_PRICE, LEN_U32))
+                  event_q.price[be_lsb(offset, OFF_ADD_PRICE, LEN_U32)+:8] <= s_axis_tdata;
+              end
 
-                FIELD_QTY: event_q.qty[desc_be_lsb(offset, active_desc)+:8] <= s_axis_tdata;
+              MSG_EXECUTE: begin
+                if (is_in_field(offset, OFF_EXEC_QTY, LEN_U32))
+                  event_q.qty[be_lsb(offset, OFF_EXEC_QTY, LEN_U32)+:8] <= s_axis_tdata;
+                if (is_in_field(offset, OFF_EXEC_MATCH_NUMBER, LEN_U64))
+                  event_q.match_number[be_lsb(
+                      offset, OFF_EXEC_MATCH_NUMBER, LEN_U64
+                  )+:8] <= s_axis_tdata;
+              end
 
-                FIELD_PRICE: event_q.price[desc_be_lsb(offset, active_desc)+:8] <= s_axis_tdata;
+              MSG_CANCEL: begin
+                if (is_in_field(offset, OFF_CANCEL_QTY, LEN_U32))
+                  event_q.qty[be_lsb(offset, OFF_CANCEL_QTY, LEN_U32)+:8] <= s_axis_tdata;
+              end
 
-                FIELD_MATCH_NUMBER:
-                event_q.match_number[desc_be_lsb(offset, active_desc)+:8] <= s_axis_tdata;
+              MSG_REPLACE: begin
+                if (is_in_field(offset, OFF_REPLACE_NEW_ORDER_REF, LEN_U64))
+                  event_q.new_order_ref[be_lsb(
+                      offset, OFF_REPLACE_NEW_ORDER_REF, LEN_U64
+                  )+:8] <= s_axis_tdata;
+                if (is_in_field(offset, OFF_REPLACE_QTY, LEN_U32))
+                  event_q.qty[be_lsb(offset, OFF_REPLACE_QTY, LEN_U32)+:8] <= s_axis_tdata;
+                if (is_in_field(offset, OFF_REPLACE_PRICE, LEN_U32))
+                  event_q.price[be_lsb(offset, OFF_REPLACE_PRICE, LEN_U32)+:8] <= s_axis_tdata;
+              end
 
-                FIELD_STOCK: event_q.stock[desc_be_lsb(offset, active_desc)+:8] <= s_axis_tdata;
-
-                default: begin
-                end
-              endcase
-            end
+              default: begin
+              end
+            endcase
 
             if (last_byte) begin
               if (error_pending || error_valid) begin

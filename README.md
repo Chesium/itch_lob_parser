@@ -75,10 +75,17 @@ python3 scripts/gen_cpp_parser_fixtures.py
 microarchitecture. It decodes fields with direct byte-offset `case` statements,
 which is useful as a simple baseline for later design comparisons.
 
-`rtl/itch_parser_core.sv` is the maintained parser core with the same external
-interface and behavior. It uses `rtl/itch_parser_pkg.sv` for named protocol
-layout constants, valid masks, error codes, helper functions, and packed
-normalized event state, so field layout changes are localized.
+`rtl/itch_parser_core_layout.sv` keeps the middle-ground refactor. It uses named
+layout constants, helper functions, and packed normalized event state while
+still spelling out each message type's field updates in the core.
+
+`rtl/itch_parser_core.sv` is the maintained public parser core. It uses a static
+microcoded field table from `rtl/itch_parser_pkg.sv` to map byte offsets to
+normalized event fields, giving the most abstract protocol layout description
+while preserving the same external interface and behavior.
+
+All three cores expose the same normalized event interface, but the default
+cocotb workflow selects only `itch_parser_core`.
 
 Run the RTL validation workflow with:
 
