@@ -55,3 +55,16 @@ Run the Python checks with:
 ```sh
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
+
+## CPP Build
+
+```bash
+cmake -S . -B build
+cmake --build build
+```
+
+```bash
+python3 scripts/gen_cpp_parser_fixtures.py
+./build/itch_cli scripts/data/smoke_all_types.bin
+./build/itch_cli scripts/data/max_width_add.bin
+```
