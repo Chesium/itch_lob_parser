@@ -5,6 +5,7 @@ project(itch_lob_parser LANGUAGES CXX)
 add_library(itch_parser
   cpp/itch_parser.cpp
   cpp/itch_spec.cpp
+  cpp/lob.cpp
 )
 
 target_include_directories(itch_parser

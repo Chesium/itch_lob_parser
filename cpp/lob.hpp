@@ -1,7 +1,10 @@
 #pragma once
 
 #include "itch_spec.hpp"
+#include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 struct Order
 {
@@ -16,6 +19,7 @@ class LOB
 {
 public:
   void apply(const ItchEvent &ev);
+  std::vector<std::pair<uint64_t, Order>> snapshot() const;
 
 private:
   void addOrder(const ItchEvent &ev);

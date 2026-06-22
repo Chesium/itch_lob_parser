@@ -258,6 +258,69 @@ class CppCliTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Unexpected end of stream", result.stderr)
 
+    def test_cli_output_matches_reference_parser(self) -> None:
+        stream = packet_gen.gen_stream(
+            [
+                packet_gen.gen_add(1, 1, 100, 1001, "B", 100, "AAPL", 1_000_000),
+                packet_gen.gen_add(1, 2, 101, 1002, "S", 50, "MSFT", 1_010_000),
+                packet_gen.gen_execute(1, 3, 102, 1001, 30, 9001),
+                packet_gen.gen_cancel(1, 4, 103, 1001, 20),
+                packet_gen.gen_replace(1, 5, 104, 1002, 2002, 60, 1_005_000),
+                packet_gen.gen_delete(1, 6, 105, 2002),
+            ]
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".bin") as tmp:
+            tmp.write(stream)
+            tmp.flush()
+
+            result = subprocess.run(
+                [str(ROOT / "build" / "itch_cli"), tmp.name],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+        self.assertEqual(result.stdout.rstrip("\n"), ref_parser.format_stream(stream))
+        self.assertEqual(result.stderr, "")
+
+    def test_cli_debug_lob_applies_lifecycle_like_reference_model(self) -> None:
+        stream = packet_gen.gen_stream(
+            [
+                packet_gen.gen_add(1, 1, 100, 1001, "B", 100, "AAPL", 1_000_000),
+                packet_gen.gen_add(1, 2, 101, 1002, "S", 50, "MSFT", 1_010_000),
+                packet_gen.gen_execute(1, 3, 102, 1001, 30, 9001),
+                packet_gen.gen_cancel(1, 4, 103, 1001, 20),
+                packet_gen.gen_replace(1, 5, 104, 1002, 2002, 60, 1_005_000),
+                packet_gen.gen_delete(1, 6, 105, 2002),
+            ]
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".bin") as tmp:
+            tmp.write(stream)
+            tmp.flush()
+
+            result = subprocess.run(
+                [str(ROOT / "build" / "itch_cli"), "--debug-lob", tmp.name],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+        lob = ref_parser.TinyLob()
+        lob.apply_all(ref_parser.parse_stream(stream))
+
+        self.assertEqual(set(lob.orders), {1001})
+        self.assertEqual(result.stdout.rstrip("\n"), ref_parser.format_stream(stream))
+        self.assertEqual(
+            result.stderr.splitlines()[-3:],
+            [
+                "[lob] applied D 1 105 2002 N N N N N N 00000001",
+                "[lob] active_orders=1",
+                "[lob] order 1001 1 AAPL B 50 100.0000",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

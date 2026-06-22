@@ -1,5 +1,8 @@
 #include "lob.hpp"
 #include <format>
+#include <algorithm>
+#include <iomanip>
+#include <ostream>
 
 void LOB::apply(const ItchEvent &ev)
 {
@@ -32,6 +35,8 @@ void LOB::addOrder(const ItchEvent &ev)
     throw std::runtime_error(std::format("duplicate order_ref {}.", ev.order_ref));
   if (ev.side == std::nullopt)
     throw std::runtime_error("ADD event side is missing.");
+  if (ev.qty == 0)
+    throw std::runtime_error("ADD quantity must be greater than 0.");
   this->orders.insert({ev.order_ref, Order{ev.stock_locate, ev.stock, *ev.side, ev.qty, ev.price}});
 }
 
@@ -40,10 +45,15 @@ void LOB::reduceOrder(uint64_t order_ref, uint32_t qty, const std::string &actio
   auto it = this->orders.find(order_ref);
   if (it == this->orders.end())
     throw std::runtime_error(std::format("unknown order_ref {}.", order_ref));
+  if (qty == 0)
+    throw std::runtime_error(std::format("{} quantity must be greater than 0.", action));
   if (qty > it->second.qty)
     throw std::runtime_error(std::format("Cannot {} {} shares from order_ref {}, only {} remain.", action, qty, order_ref, it->second.qty));
   if (qty == it->second.qty)
-    this->deleteOrder(order_ref);
+  {
+    this->orders.erase(it);
+    return;
+  }
   it->second.qty -= qty;
 }
 
@@ -62,6 +72,36 @@ void LOB::replaceOrder(uint64_t order_ref, uint64_t new_order_ref, uint32_t qty,
     throw std::runtime_error(std::format("unknown order_ref {}.", order_ref));
   if (this->orders.find(new_order_ref) != this->orders.end())
     throw std::runtime_error(std::format("duplicate order_ref {}.", new_order_ref));
-  it->second.qty = qty;
-  it->second.price_raw = price;
+  if (qty == 0)
+    throw std::runtime_error("replace quantity must be greater than 0.");
+
+  Order replacement = it->second;
+  replacement.qty = qty;
+  replacement.price_raw = price;
+  this->orders.erase(it);
+  this->orders.insert({new_order_ref, replacement});
+}
+
+std::vector<std::pair<uint64_t, Order>> LOB::snapshot() const
+{
+  std::vector<std::pair<uint64_t, Order>> rows(this->orders.begin(), this->orders.end());
+  std::sort(rows.begin(), rows.end(), [](const auto &lhs, const auto &rhs) {
+    return lhs.first < rhs.first;
+  });
+  return rows;
+}
+
+std::ostream &operator<<(std::ostream &out, const Order &order)
+{
+  out << order.stock_locate << ' ';
+  for (char ch : order.stock)
+  {
+    if (ch >= 'A' && ch <= 'Z')
+      out << ch;
+    else
+      break;
+  }
+  out << ' ' << (order.side == Side::SELL ? 'S' : 'B') << ' ' << order.qty << ' ';
+  out << std::fixed << std::setprecision(4) << static_cast<double>(order.price_raw) / 10000;
+  return out;
 }
