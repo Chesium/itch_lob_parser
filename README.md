@@ -121,6 +121,8 @@ mask records which payload fields are meaningful for each event kind.
 - `cpp/`: C++20 parser library plus `itch_cli` for smoke tests and benchmarks.
 - `rtl/`: SystemVerilog parser cores and shared protocol package.
 - `scripts/cocotb/`: cocotb/Verilator validation and RTL benchmark harness.
+- `scripts/vivado/`: optional Vivado xsim, synthesis, and post-synthesis
+  simulation utilities.
 - `scripts/bench_parsers.py`: combined Python, C++, and RTL benchmark runner.
 
 ## Setup
@@ -156,6 +158,20 @@ Run Windows build, RTL, and benchmark commands from an MSVC environment:
 ```bat
 cmd /c "call <MSVC Installation Path>\VC\Auxiliary\Build\vcvarsall.bat x64 && <command>"
 ```
+
+### Vivado xsim (Optional)
+
+The Vivado flow is separate from the default cocotb/Verilator path. Use it when
+you want AMD Vivado Simulator smoke tests, cycle-count benchmarks, or
+out-of-context synthesis reports. Make sure these Vivado commands are on
+`PATH`:
+
+- `vivado`
+- `xvlog`
+- `xelab`
+- `xsim`
+
+Vivado is not required for the Python, C++, or cocotb/Verilator commands above.
 
 ## Build, Test, And Benchmark
 
@@ -232,6 +248,55 @@ On Windows, `uv run make` is a project shim that invokes
 `scripts/cocotb/run_verilator.py`; it still accepts Makefile-style environment
 overrides such as `COCOTB_TEST_MODULES=bench_itch_parser_core`.
 
+### RTL Vivado xsim Flow
+
+The optional Vivado flow uses a native SystemVerilog testbench,
+`rtl/tb_itch_parser_core_xsim.sv`, plus vector files generated from the same
+Python packet generator and reference parser. Generated Vivado files are written
+under `tmp/`.
+
+Run a pre-synthesis functional smoke test:
+
+```bash
+uv run python scripts/vivado/run_xsim.py --messages 100 --mode verify
+```
+
+Run a pre-synthesis cycle-count benchmark:
+
+```bash
+uv run python scripts/vivado/run_xsim.py --messages 10000 --mode bench --clock-mhz 100,250
+```
+
+Example xsim benchmark result from this machine:
+
+```text
+PASS: xsim accepted 288000 bytes, emitted 10000 events in 298000 cycles
+
+| Parser | Cycles | MB/s | Msg/s | Notes |
+|---|---:|---:|---:|---|
+| xsim @100MHz | 298000 | 96.64 | 3,355,704.70 | pre-synthesis simulation, ideal hardware |
+| xsim @250MHz | 298000 | 241.61 | 8,389,261.74 | pre-synthesis simulation, ideal hardware |
+```
+
+### Post-Synthesis Vivado Flow
+
+Run out-of-context synthesis for a specific Vivado part and clock target:
+
+```bash
+uv run python scripts/vivado/run_synth.py --part xc7a35tcpg236-1 --clock-mhz 250
+```
+
+Then run the same xsim testbench against the synthesized functional netlist:
+
+```bash
+uv run python scripts/vivado/run_post_synth_xsim.py --messages 100 --mode verify
+```
+
+The synthesis wrapper writes `timing_summary.rpt`, `utilization.rpt`, a DCP,
+and `itch_parser_core_synth.v` under `tmp/vivado_synth/`. The post-synthesis
+xsim run is a functional netlist check; use the reports for timing and resource
+data.
+
 ### Combined Benchmark
 
 Linux:
@@ -246,6 +311,10 @@ Windows:
 cmd /c "call <MSVC Installation Path>\VC\Auxiliary\Build\vcvarsall.bat x64 && uv run python scripts/bench_parsers.py --messages 10000 --repeat 5 --build-cpp"
 ```
 
+The RTL rows in this combined benchmark continue to use cocotb/Verilator cycle
+counts. Vivado xsim benchmarks are available through `scripts/vivado/run_xsim.py`
+as a separate optional flow.
+
 ## RTL Core Variants
 
 All RTL variants expose the same normalized event interface, but the default
@@ -259,3 +328,6 @@ cocotb workflow selects `rtl/itch_parser_core.sv`.
 - `rtl/itch_parser_core.sv` is the maintained parser core. It uses a static
   microcoded field table from `rtl/itch_parser_pkg.sv` to map byte offsets to
   normalized event fields while preserving the same external behavior.
+
+All variants share the same external event interface, but the default cocotb and
+Vivado flows target `rtl/itch_parser_core.sv`.
