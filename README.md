@@ -1,5 +1,23 @@
 # ITCH LOB Parser
 
+## Result
+
+```bash
+python3 scripts/bench_parsers.py --messages 100000 --repeat 5 --build-cpp
+```
+
+- Dataset: `tmp/bench_stream.bin`
+- Messages: 100000
+- Bytes: 2880000
+- Repeats: 5
+
+| Parser | Time (median) | MB/s | Msg/s | Notes |
+|---|---:|---:|---:|---|
+| Python | 0.414499s | 6.95 | 241,255.27 | ref_parser.parse_stream |
+| C++ | 0.025076s | 114.85 | 3,987,830.00 | ItchParser quiet mode |
+| rtl @100MHz | 2980000 cycles | 96.64 | 3,355,704.70 | measured cycles, ideal hardware |
+| rtl @250MHz | 2980000 cycles | 241.61 | 8,389,261.74 | measured cycles, ideal hardware |
+
 ## Simplified ITCH Subset and LOB Semantics
 
 This repository implements the simplified ITCH payload subset described in

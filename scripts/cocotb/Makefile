@@ -9,7 +9,7 @@ VERILOG_SOURCES := \
 	$(RTL_DIR)/itch_parser_core.sv
 
 TOPLEVEL := itch_parser_core
-COCOTB_TEST_MODULES := test_itch_parser_core
+COCOTB_TEST_MODULES ?= test_itch_parser_core
 
 EXTRA_ARGS += -Wall -Wno-fatal
 

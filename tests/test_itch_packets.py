@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pathlib
+import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,6 +14,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import packet_gen
 import ref_parser
+import gen_bench_stream
 
 
 class PacketGeneratorTests(unittest.TestCase):
@@ -61,6 +64,19 @@ class PacketGeneratorTests(unittest.TestCase):
             packet_gen.gen_add(1, 2, 3, 1001, "B", 1, "TOO-LONG!", 100)
         with self.assertRaises(ValueError):
             packet_gen.gen_delete(1, 2, 1 << 48, 1001)
+
+    def test_benchmark_stream_generation_is_valid_and_deterministic(self) -> None:
+        stream_a, meta_a = gen_bench_stream.build_bench_stream(messages=100, seed=7)
+        stream_b, meta_b = gen_bench_stream.build_bench_stream(messages=100, seed=7)
+
+        events = ref_parser.parse_stream(stream_a)
+
+        self.assertEqual(stream_a, stream_b)
+        self.assertEqual(meta_a["bytes"], len(stream_a))
+        self.assertEqual(meta_a["messages"], 100)
+        self.assertEqual(meta_b["messages"], 100)
+        self.assertEqual(len(events), 100)
+        self.assertEqual(sum(meta_a["message_mix"].values()), 100)
 
 
 class ReferenceParserTests(unittest.TestCase):
@@ -320,6 +336,86 @@ class CppCliTests(unittest.TestCase):
                 "[lob] order 1001 1 AAPL B 50 100.0000",
             ],
         )
+
+    def test_cli_benchmark_json_reports_event_count(self) -> None:
+        stream, _ = gen_bench_stream.build_bench_stream(messages=50, seed=11)
+
+        with tempfile.NamedTemporaryFile(suffix=".bin") as tmp:
+            tmp.write(stream)
+            tmp.flush()
+
+            result = subprocess.run(
+                [str(ROOT / "build" / "itch_cli"), "--bench", "--json", "--repeat", "2", tmp.name],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["parser"], "cpp")
+        self.assertEqual(payload["bytes"], len(stream))
+        self.assertEqual(payload["events"], len(ref_parser.parse_stream(stream)))
+        self.assertEqual(payload["repeat"], 2)
+        self.assertEqual(len(payload["elapsed_ns"]), 2)
+        self.assertGreater(payload["messages_per_sec"], 0)
+
+    def test_benchmark_script_smoke_without_rtl(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "bench_parsers.py"),
+                "--messages",
+                "100",
+                "--repeat",
+                "2",
+                "--skip-rtl",
+                "--build-cpp",
+            ],
+            text=True,
+            capture_output=True,
+            check=True,
+            cwd=ROOT,
+        )
+
+        self.assertIn("| Python |", result.stdout)
+        self.assertIn("| C++ |", result.stdout)
+        self.assertIn("Dataset: tmp/bench_stream.bin", result.stdout)
+
+    @unittest.skipUnless(
+        shutil.which("make") and shutil.which("verilator") and (shutil.which("cocotb-config") or shutil.which("uv")),
+        "RTL benchmark smoke requires make, verilator, and cocotb via PATH or uv",
+    )
+    def test_rtl_benchmark_smoke_writes_cycle_json(self) -> None:
+        stream, _ = gen_bench_stream.build_bench_stream(messages=25, seed=13)
+        with tempfile.TemporaryDirectory() as td:
+            stream_path = pathlib.Path(td) / "rtl_bench.bin"
+            out_path = pathlib.Path(td) / "rtl_bench.json"
+            stream_path.write_bytes(stream)
+
+            make_cmd = ["make"]
+            if shutil.which("uv") and not shutil.which("cocotb-config"):
+                make_cmd = ["uv", "run", "make"]
+
+            subprocess.run(
+                make_cmd
+                + [
+                    "-C",
+                    str(ROOT / "scripts" / "cocotb"),
+                    f"BENCH_STREAM={stream_path}",
+                    f"RTL_BENCH_JSON={out_path}",
+                    "COCOTB_TEST_MODULES=bench_itch_parser_core",
+                ],
+                check=True,
+                cwd=ROOT,
+                stdout=subprocess.DEVNULL,
+            )
+
+            payload = json.loads(out_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["bytes"], len(stream))
+        self.assertEqual(payload["bytes_accepted"], len(stream))
+        self.assertEqual(payload["events"], len(ref_parser.parse_stream(stream)))
+        self.assertGreaterEqual(payload["total_cycles"], payload["accepted_byte_cycles"])
 
 
 if __name__ == "__main__":
