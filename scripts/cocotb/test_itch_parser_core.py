@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -239,29 +240,39 @@ async def drive_stream(dut, stream: bytes) -> None:
 
 
 def cpp_reference_lines(stream: bytes) -> list[str]:
-    with tempfile.NamedTemporaryFile(suffix=".bin") as tmp:
-        tmp.write(stream)
-        tmp.flush()
+    default_build_dir = ROOT / ("build-msvc" if os.name == "nt" else "build")
+    build_dir = Path(os.environ.get("ITCH_CPP_BUILD_DIR", default_build_dir))
+    cli = build_dir / ("itch_cli.exe" if os.name == "nt" else "itch_cli")
+    tmp_path = None
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as tmp:
+            tmp.write(stream)
+            tmp.flush()
+            tmp_path = Path(tmp.name)
 
         subprocess.run(
-            ["cmake", "-S", str(ROOT), "-B", str(ROOT / "build")],
+            ["cmake", "-S", str(ROOT), "-B", str(build_dir)],
             check=True,
             cwd=ROOT,
             stdout=subprocess.DEVNULL,
         )
         subprocess.run(
-            ["cmake", "--build", str(ROOT / "build")],
+            ["cmake", "--build", str(build_dir)],
             check=True,
             cwd=ROOT,
             stdout=subprocess.DEVNULL,
         )
         result = subprocess.run(
-            [str(ROOT / "build" / "itch_cli"), tmp.name],
+            [str(cli), str(tmp_path)],
             check=True,
             cwd=ROOT,
             text=True,
             capture_output=True,
         )
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
     return result.stdout.splitlines()
 

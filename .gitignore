@@ -4,7 +4,9 @@ tmp
 .venv
 obj_dir
 sim_build
-build/
+build*/
 results.xml
 scripts/data
 .vscode
+*.obj
+.tmp

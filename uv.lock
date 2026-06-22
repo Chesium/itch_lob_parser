@@ -63,7 +63,7 @@ wheels = [
 [[package]]
 name = "itch-lob-parser"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "cocotb" },
     { name = "cocotbext-axi" },

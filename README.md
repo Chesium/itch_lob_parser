@@ -1,22 +1,118 @@
 # ITCH LOB Parser
 
-## Result
+## Setup
+
+Use `uv` for the Python environment on both Linux and Windows:
 
 ```bash
-python3 scripts/bench_parsers.py --messages 100000 --repeat 5 --build-cpp
+uv sync
 ```
 
-- Dataset: `tmp/bench_stream.bin`
-- Messages: 100000
-- Bytes: 2880000
+### Linux
+
+The original flow assumes these tools are available on `PATH`:
+
+- `uv`
+- `cmake`
+- a C++20 compiler such as `g++` or `clang++`
+- `make`
+- `verilator`
+
+### Windows
+
+The Windows flow uses MSVC for both the C++ CLI and the cocotb Verilator runner.
+Install these tools and make sure `uv`, `cmake`, and `verilator` are on `PATH`:
+
+- `uv`
+- `cmake`
+- Verilator for Windows (tested with [withlimon/verilator-windows](https://github.com/withlimon/verilator-window)s)
+- MSVC Build Tools or Visual Studio with the C++ toolchain
+
+Run Windows build, RTL, and benchmark commands from an MSVC environment. For
+example:
+
+```bat
+cmd /c "call <MSVC Installation Path>\VC\Auxiliary\Build\vcvarsall.bat x64 && <command>"
+```
+
+Adjust the `vcvarsall.bat` path for your MSVC installation.
+
+## Test And Benchmark Commands
+
+### Python
+
+```bash
+uv run python -m unittest discover -s tests -p "test_*.py"
+```
+
+### C++
+
+Linux:
+
+```bash
+cmake -S . -B build
+cmake --build build
+uv run python scripts/gen_cpp_parser_fixtures.py
+./build/itch_cli scripts/data/smoke_all_types.bin
+```
+
+Windows:
+
+```bat
+cmd /c "call <MSVC Installation Path>\VC\Auxiliary\Build\vcvarsall.bat x64 && cmake -S . -B build-msvc && cmake --build build-msvc"
+uv run python scripts/gen_cpp_parser_fixtures.py
+build-msvc\itch_cli.exe scripts\data\smoke_all_types.bin
+```
+
+### RTL
+
+Linux:
+
+```bash
+uv run make -C scripts/cocotb
+```
+
+Windows:
+
+```bat
+cmd /c "call <MSVC Installation Path>\VC\Auxiliary\Build\vcvarsall.bat x64 && uv run make -C scripts/cocotb"
+```
+
+On Windows, `uv run make` is a project shim that invokes
+`scripts/cocotb/run_verilator.py`; it still accepts the cocotb Makefile-style
+environment overrides used by the benchmark.
+
+### Combined Benchmark
+
+The benchmark generates one shared ITCH stream, runs the Python reference parser,
+the C++ parser, and the RTL cocotb benchmark, then reports throughput for each.
+Use `--skip-rtl` to benchmark only Python and C++.
+
+Linux:
+
+```bash
+uv run python scripts/bench_parsers.py --messages 10000 --repeat 5 --build-cpp
+```
+
+Windows:
+
+```bat
+cmd /c "call <MSVC Installation Path>\VC\Auxiliary\Build\vcvarsall.bat x64 && uv run python scripts/bench_parsers.py --messages 10000 --repeat 5 --build-cpp"
+```
+
+Example Windows result:
+
+- Dataset: `tmp\bench_stream.bin`
+- Messages: 10000
+- Bytes: 288000
 - Repeats: 5
 
 | Parser | Time (median) | MB/s | Msg/s | Notes |
 |---|---:|---:|---:|---|
-| Python | 0.414499s | 6.95 | 241,255.27 | ref_parser.parse_stream |
-| C++ | 0.025076s | 114.85 | 3,987,830.00 | ItchParser quiet mode |
-| rtl @100MHz | 2980000 cycles | 96.64 | 3,355,704.70 | measured cycles, ideal hardware |
-| rtl @250MHz | 2980000 cycles | 241.61 | 8,389,261.74 | measured cycles, ideal hardware |
+| Python | 0.035401s | 8.14 | 282,479.49 | ref_parser.parse_stream |
+| C++ | 0.001815s | 158.70 | 5,510,550.00 | ItchParser quiet mode |
+| rtl @100MHz | 298000 cycles | 96.64 | 3,355,704.70 | measured cycles, ideal hardware |
+| rtl @250MHz | 298000 cycles | 241.61 | 8,389,261.74 | measured cycles, ideal hardware |
 
 ## Simplified ITCH Subset and LOB Semantics
 
@@ -146,18 +242,26 @@ assert lob.orders[1001].qty == 60
 Run the Python checks with:
 
 ```sh
-python3 -m unittest discover -s tests -p 'test_*.py'
+uv run python -m unittest discover -s tests -p "test_*.py"
 ```
 
 ## CPP Build
+
+Linux:
 
 ```bash
 cmake -S . -B build
 cmake --build build
 ```
 
+Windows:
+
+```bat
+cmd /c "call <MSVC Installation Path>\VC\Auxiliary\Build\vcvarsall.bat x64 && cmake -S . -B build-msvc && cmake --build build-msvc"
+```
+
 ```bash
-python3 scripts/gen_cpp_parser_fixtures.py
+uv run python scripts/gen_cpp_parser_fixtures.py
 ./build/itch_cli scripts/data/smoke_all_types.bin
 ./build/itch_cli scripts/data/max_width_add.bin
 ```
@@ -185,3 +289,6 @@ Run the RTL validation workflow with:
 ```bash
 uv run make -C scripts/cocotb
 ```
+
+On Windows, run that command from an MSVC environment so `cl.exe` and
+`nmake.exe` are available.

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import statistics
 import subprocess
@@ -94,23 +95,39 @@ def benchmark_python(stream: bytes, repeat: int) -> dict[str, Any]:
 
 
 def build_cpp() -> None:
+    build_dir = ROOT / ("build-msvc" if os.name == "nt" else "build")
     subprocess.run(
-        ["cmake", "-S", str(ROOT), "-B", str(ROOT / "build")],
+        ["cmake", "-S", str(ROOT), "-B", str(build_dir)],
         check=True,
         cwd=ROOT,
         stdout=subprocess.DEVNULL,
     )
     subprocess.run(
-        ["cmake", "--build", str(ROOT / "build")],
+        ["cmake", "--build", str(build_dir)],
         check=True,
         cwd=ROOT,
         stdout=subprocess.DEVNULL,
     )
+
+
+def cpp_executable() -> Path:
+    build_dir = ROOT / ("build-msvc" if os.name == "nt" else "build")
+    if os.name != "nt":
+        return build_dir / "itch_cli"
+
+    candidates = [
+        build_dir / "itch_cli.exe",
+        build_dir / "Release" / "itch_cli.exe",
+        build_dir / "Debug" / "itch_cli.exe",
+        build_dir / "RelWithDebInfo" / "itch_cli.exe",
+        build_dir / "MinSizeRel" / "itch_cli.exe",
+    ]
+    return next((candidate for candidate in candidates if candidate.exists()), candidates[0])
 
 
 def benchmark_cpp(input_path: Path, repeat: int) -> dict[str, Any]:
     result = subprocess.run(
-        [str(ROOT / "build" / "itch_cli"), "--bench", "--json", "--repeat", str(repeat), str(input_path)],
+        [str(cpp_executable()), "--bench", "--json", "--repeat", str(repeat), str(input_path)],
         check=True,
         cwd=ROOT,
         text=True,
@@ -125,6 +142,25 @@ def run_rtl_benchmark(input_path: Path) -> dict[str, Any]:
     if DEFAULT_RTL_JSON.exists():
         DEFAULT_RTL_JSON.unlink()
 
+    env = os.environ.copy()
+    env.update(
+        {
+            "BENCH_STREAM": str(input_path),
+            "RTL_BENCH_JSON": str(DEFAULT_RTL_JSON),
+            "COCOTB_TEST_MODULES": "bench_itch_parser_core",
+        }
+    )
+
+    if os.name == "nt":
+        subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "cocotb" / "run_verilator.py")],
+            check=True,
+            cwd=ROOT,
+            stdout=subprocess.DEVNULL,
+            env=env,
+        )
+        return json.loads(DEFAULT_RTL_JSON.read_text(encoding="utf-8"))
+
     make_cmd = ["make"]
     if shutil.which("uv"):
         make_cmd = ["uv", "run", "make"]
@@ -134,13 +170,11 @@ def run_rtl_benchmark(input_path: Path) -> dict[str, Any]:
         + [
             "-C",
             str(ROOT / "scripts" / "cocotb"),
-            f"BENCH_STREAM={input_path}",
-            f"RTL_BENCH_JSON={DEFAULT_RTL_JSON}",
-            "COCOTB_TEST_MODULES=bench_itch_parser_core",
         ],
         check=True,
         cwd=ROOT,
         stdout=subprocess.DEVNULL,
+        env=env,
     )
     return json.loads(DEFAULT_RTL_JSON.read_text(encoding="utf-8"))
 
