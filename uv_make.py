@@ -8,6 +8,20 @@ import sys
 ROOT = Path(__file__).resolve().parent
 
 
+def external_tool(name: str) -> str | None:
+    current = Path(sys.argv[0]).resolve()
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if not entry:
+            continue
+        candidate = shutil.which(name, path=entry)
+        if candidate is None:
+            continue
+        if Path(candidate).resolve() == current:
+            continue
+        return candidate
+    return None
+
+
 def is_cocotb_make_dir(value: str) -> bool:
     path = Path(value)
     if not path.is_absolute():
@@ -40,7 +54,8 @@ def main() -> None:
         sys.exit(completed.returncode)
 
     make = "mingw32-make" if os.name == "nt" else "make"
-    if shutil.which(make) is None:
+    make_path = external_tool(make)
+    if make_path is None:
         sys.exit(f"{make} was not found on PATH.")
-    completed = subprocess.run([make, *sys.argv[1:]])
+    completed = subprocess.run([make_path, *sys.argv[1:]])
     sys.exit(completed.returncode)
