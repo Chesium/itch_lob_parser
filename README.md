@@ -25,7 +25,7 @@ Install these tools and make sure `uv`, `cmake`, and `verilator` are on `PATH`:
 
 - `uv`
 - `cmake`
-- Verilator for Windows (tested with [withlimon/verilator-windows](https://github.com/withlimon/verilator-window)s)
+- Verilator for Windows (tested with [withlimon/verilator-windows](https://github.com/withlimon/verilator-windows))
 - MSVC Build Tools or Visual Studio with the C++ toolchain
 
 Run Windows build, RTL, and benchmark commands from an MSVC environment. For
