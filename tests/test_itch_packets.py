@@ -17,6 +17,27 @@ import ref_parser
 import gen_bench_stream
 
 
+CPP_BUILD = ROOT / "build"
+
+
+def cpp_cli() -> pathlib.Path:
+    candidates = [
+        CPP_BUILD / "itch_cli.exe",
+        CPP_BUILD / "itch_cli",
+        CPP_BUILD / "Release" / "itch_cli.exe",
+        CPP_BUILD / "Debug" / "itch_cli.exe",
+        CPP_BUILD / "RelWithDebInfo" / "itch_cli.exe",
+        CPP_BUILD / "MinSizeRel" / "itch_cli.exe",
+    ]
+    return next((candidate for candidate in candidates if candidate.exists()), candidates[0])
+
+
+def write_temp_bin(payload: bytes) -> pathlib.Path:
+    with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as tmp:
+        tmp.write(payload)
+        return pathlib.Path(tmp.name)
+
+
 class PacketGeneratorTests(unittest.TestCase):
     def test_add_packet_matches_spec_layout(self) -> None:
         packet = packet_gen.gen_add(
@@ -255,21 +276,21 @@ class ReferenceParserTests(unittest.TestCase):
 class CppCliTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        subprocess.run(["cmake", "-S", str(ROOT), "-B", str(ROOT / "build")], check=True)
-        subprocess.run(["cmake", "--build", str(ROOT / "build")], check=True)
+        subprocess.run(["cmake", "-S", str(ROOT), "-B", str(CPP_BUILD)], check=True)
+        subprocess.run(["cmake", "--build", str(CPP_BUILD)], check=True)
 
     def test_cli_rejects_truncated_stream(self) -> None:
         packet = packet_gen.gen_add(1, 2, 3, 4, "B", 5, "AAPL", 6)
-
-        with tempfile.NamedTemporaryFile(suffix=".bin") as tmp:
-            tmp.write(packet[:-1])
-            tmp.flush()
+        tmp_path = write_temp_bin(packet[:-1])
+        try:
 
             result = subprocess.run(
-                [str(ROOT / "build" / "itch_cli"), tmp.name],
+                [str(cpp_cli()), str(tmp_path)],
                 text=True,
                 capture_output=True,
             )
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Unexpected end of stream", result.stderr)
@@ -286,16 +307,17 @@ class CppCliTests(unittest.TestCase):
             ]
         )
 
-        with tempfile.NamedTemporaryFile(suffix=".bin") as tmp:
-            tmp.write(stream)
-            tmp.flush()
+        tmp_path = write_temp_bin(stream)
+        try:
 
             result = subprocess.run(
-                [str(ROOT / "build" / "itch_cli"), tmp.name],
+                [str(cpp_cli()), str(tmp_path)],
                 text=True,
                 capture_output=True,
                 check=True,
             )
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
         self.assertEqual(result.stdout.rstrip("\n"), ref_parser.format_stream(stream))
         self.assertEqual(result.stderr, "")
@@ -312,16 +334,17 @@ class CppCliTests(unittest.TestCase):
             ]
         )
 
-        with tempfile.NamedTemporaryFile(suffix=".bin") as tmp:
-            tmp.write(stream)
-            tmp.flush()
+        tmp_path = write_temp_bin(stream)
+        try:
 
             result = subprocess.run(
-                [str(ROOT / "build" / "itch_cli"), "--debug-lob", tmp.name],
+                [str(cpp_cli()), "--debug-lob", str(tmp_path)],
                 text=True,
                 capture_output=True,
                 check=True,
             )
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
         lob = ref_parser.TinyLob()
         lob.apply_all(ref_parser.parse_stream(stream))
@@ -340,16 +363,17 @@ class CppCliTests(unittest.TestCase):
     def test_cli_benchmark_json_reports_event_count(self) -> None:
         stream, _ = gen_bench_stream.build_bench_stream(messages=50, seed=11)
 
-        with tempfile.NamedTemporaryFile(suffix=".bin") as tmp:
-            tmp.write(stream)
-            tmp.flush()
+        tmp_path = write_temp_bin(stream)
+        try:
 
             result = subprocess.run(
-                [str(ROOT / "build" / "itch_cli"), "--bench", "--json", "--repeat", "2", tmp.name],
+                [str(cpp_cli()), "--bench", "--json", "--repeat", "2", str(tmp_path)],
                 text=True,
                 capture_output=True,
                 check=True,
             )
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
         payload = json.loads(result.stdout)
         self.assertEqual(payload["parser"], "cpp")

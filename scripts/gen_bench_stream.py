@@ -105,7 +105,7 @@ def write_bench_stream(out: Path, messages: int, seed: int, stock: str) -> dict[
     stream, metadata = build_bench_stream(messages=messages, seed=seed, stock=stock)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(stream)
-    metadata["output_path"] = str(out)
+    metadata["output_path"] = out.as_posix()
     return metadata
 
 
