@@ -5,46 +5,38 @@
 
 ItchParser::ItchParser(size_t cache_size)
 {
-  this->eventCacheSize = cache_size;
-  this->reset();
-  this->events = new ItchEvent[this->eventCacheSize];
-}
-
-ItchParser::~ItchParser()
-{
-  delete[] this->events;
+  this->events.reserve(cache_size);
 }
 
 void ItchParser::reset()
 {
-  this->eventN = 0;
+  this->events.clear();
 }
 
-void ItchParser::start(char *ptr, size_t len)
+void ItchParser::start(std::span<const std::uint8_t> bytes)
 {
-  this->stream = ptr;
+  this->stream = bytes;
   this->cursor = 0;
-  this->len = len;
-  while (this->cursor < this->len)
+  this->reset();
+  while (this->cursor < this->stream.size())
   {
-    ItchEvent *ev = this->events + (this->eventN++);
-    *ev = ItchEvent{};
+    ItchEvent &ev = this->events.emplace_back();
     switch (this->parseByte())
     {
     case 'A': // ADD
-      this->parseAdd(ev);
+      this->parseAdd(&ev);
       break;
     case 'E': // EXECUTE
-      this->parseExecute(ev);
+      this->parseExecute(&ev);
       break;
     case 'X': // CANCEL
-      this->parseCancel(ev);
+      this->parseCancel(&ev);
       break;
     case 'D': // DELETE
-      this->parseDelete(ev);
+      this->parseDelete(&ev);
       break;
     case 'U': // REPLACE
-      this->parseReplace(ev);
+      this->parseReplace(&ev);
       break;
     default:
       throw std::domain_error(std::format("Unknown MsgType at byte {}.", this->cursor - 1));
@@ -55,7 +47,9 @@ void ItchParser::start(char *ptr, size_t len)
 
 uint8_t ItchParser::parseByte()
 {
-  return static_cast<uint8_t>(*(this->stream + (this->cursor++)));
+  if (this->cursor >= this->stream.size())
+    throw std::out_of_range(std::format("Unexpected end of stream at byte {}.", this->cursor));
+  return this->stream[this->cursor++];
 }
 
 uint16_t ItchParser::parseU16()
@@ -101,7 +95,8 @@ void ItchParser::parseAdd(ItchEvent *ev)
 {
   // Length: 36
   ev->kind = EventKind::ADD;
-  ev->valid_mask = 0b01011101;
+  ev->valid_mask = EventField::ORDER_REF | EventField::SIDE | EventField::QTY |
+                   EventField::PRICE | EventField::STOCK;
   this->parseHeader(ev);
   switch (this->parseByte())
   {
@@ -125,7 +120,7 @@ void ItchParser::parseExecute(ItchEvent *ev)
 {
   // Length: 31
   ev->kind = EventKind::EXECUTE;
-  ev->valid_mask = 0b00101001;
+  ev->valid_mask = EventField::ORDER_REF | EventField::QTY | EventField::MATCH_NUMBER;
   this->parseHeader(ev);
   ev->qty = this->parseU32();
   ev->match_number = this->parseU64();
@@ -135,7 +130,7 @@ void ItchParser::parseCancel(ItchEvent *ev)
 {
   // Length: 23
   ev->kind = EventKind::CANCEL;
-  ev->valid_mask = 0b00001001;
+  ev->valid_mask = EventField::ORDER_REF | EventField::QTY;
   this->parseHeader(ev);
   ev->qty = this->parseU32();
 }
@@ -144,7 +139,7 @@ void ItchParser::parseDelete(ItchEvent *ev)
 {
   // Length: 19
   ev->kind = EventKind::DELETE;
-  ev->valid_mask = 0b00000001;
+  ev->valid_mask = EventField::ORDER_REF;
   this->parseHeader(ev);
 }
 
@@ -152,7 +147,8 @@ void ItchParser::parseReplace(ItchEvent *ev)
 {
   // Length: 35
   ev->kind = EventKind::REPLACE;
-  ev->valid_mask = 0b00011011;
+  ev->valid_mask = EventField::ORDER_REF | EventField::NEW_ORDER_REF | EventField::QTY |
+                   EventField::PRICE;
   this->parseHeader(ev);
   ev->new_order_ref = this->parseU64();
   ev->qty = this->parseU32();

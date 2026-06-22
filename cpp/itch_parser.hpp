@@ -1,7 +1,9 @@
 #pragma once
 
-#include <cstdlib>
 #include <cstdint>
+#include <cstdlib>
+#include <span>
+#include <vector>
 
 #include "itch_spec.hpp"
 
@@ -9,17 +11,13 @@ class ItchParser
 {
 public:
   ItchParser(size_t cache_size);
-  ~ItchParser();
   void reset();
-  void start(char *ptr, size_t len);
-  ItchEvent *events;
-  size_t eventN;
+  void start(std::span<const std::uint8_t> bytes);
+  std::vector<ItchEvent> events;
 
 private:
-  char *stream;
-  size_t eventCacheSize;
+  std::span<const std::uint8_t> stream;
   size_t cursor;
-  size_t len;
 
   uint8_t parseByte();
   uint16_t parseU16();

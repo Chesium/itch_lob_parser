@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import pathlib
+import subprocess
 import sys
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -232,6 +234,29 @@ class ReferenceParserTests(unittest.TestCase):
         self.assertEqual(event.new_order_ref, packet_gen.MAX_U64 - 1)
         self.assertEqual(event.qty, packet_gen.MAX_U32)
         self.assertEqual(event.price, packet_gen.MAX_U32)
+
+
+class CppCliTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        subprocess.run(["cmake", "-S", str(ROOT), "-B", str(ROOT / "build")], check=True)
+        subprocess.run(["cmake", "--build", str(ROOT / "build")], check=True)
+
+    def test_cli_rejects_truncated_stream(self) -> None:
+        packet = packet_gen.gen_add(1, 2, 3, 4, "B", 5, "AAPL", 6)
+
+        with tempfile.NamedTemporaryFile(suffix=".bin") as tmp:
+            tmp.write(packet[:-1])
+            tmp.flush()
+
+            result = subprocess.run(
+                [str(ROOT / "build" / "itch_cli"), tmp.name],
+                text=True,
+                capture_output=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Unexpected end of stream", result.stderr)
 
 
 if __name__ == "__main__":
