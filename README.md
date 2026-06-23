@@ -315,6 +315,68 @@ The RTL rows in this combined benchmark continue to use cocotb/Verilator cycle
 counts. Vivado xsim benchmarks are available through `scripts/vivado/run_xsim.py`
 as a separate optional flow.
 
+### Profiling Breakdown
+
+Use the profiling scripts when you want stage-level detail instead of only the
+headline benchmark table. The profiling flow is WSL-friendly and uses the same
+deterministic packet generator as the benchmark.
+
+Prerequisites:
+
+- Required: `uv`, Python 3.12+, `cmake`, a C++20 compiler, and `make`.
+- Required for RTL profiling: `verilator`.
+- Optional for C++ callgraph profiling: `valgrind`. This WSL environment was
+  checked with `valgrind-3.22.0`.
+- Not required: Vivado, `xsim`, or synthesis tools.
+
+Profile only the Python parser:
+
+```bash
+uv run python scripts/profile_python_parser.py --messages 10000 --repeat 5
+```
+
+Build C++ and run the C++ breakdown profiler against an existing stream:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./build/itch_cli --bench-breakdown --json --repeat 5 tmp/bench_stream.bin
+```
+
+Run the combined Python, C++, and RTL profiler:
+
+```bash
+uv run python scripts/profile_parsers.py --messages 10000 --repeat 5 --build-cpp
+```
+
+Run C++ Callgrind profiling and write `tmp/profile/callgrind.out`:
+
+```bash
+uv run python scripts/profile_parsers.py --messages 10000 --repeat 1 --build-cpp --skip-rtl --run-callgrind
+```
+
+Example profiling result from this WSL environment:
+
+```text
+Dataset: /home/chesi/itch_lob_parser/tmp/profile/bench_stream.bin
+Messages: 10000
+Bytes: 288000
+Repeats: 5
+
+| Parser/stage | Median time | MB/s | Msg/s | Notes |
+|---|---:|---:|---:|---|
+| Python parse | 0.034053s | 8.46 | 293,657.84 | ref_parser.parse_stream |
+| C++ parse | 0.000272s | 1,057.39 | 36,714,900.00 | ItchParser::start |
+| RTL cycles | 298000 cycles | N/A | N/A | cocotb/Verilator measured cycles |
+```
+
+The same run wrote `tmp/profile/profile.json`. Its RTL breakdown reported
+`288000` read cycles, `10000` output cycles, `9999` input-stall cycles from
+the one-cycle output handoff between messages, and per-type first-byte-to-event
+latencies of `37` cycles for ADD, `32` for EXECUTE, `24` for CANCEL, `20` for
+DELETE, and `36` for REPLACE. A separate Callgrind pass wrote
+`tmp/profile/callgrind.out` and collected `7,600,559` instruction references.
+
 ## RTL Core Variants
 
 All RTL variants expose the same normalized event interface, but the default

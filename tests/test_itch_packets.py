@@ -383,6 +383,85 @@ class CppCliTests(unittest.TestCase):
         self.assertEqual(len(payload["elapsed_ns"]), 2)
         self.assertGreater(payload["messages_per_sec"], 0)
 
+    def test_cli_benchmark_breakdown_json_reports_stage_timings(self) -> None:
+        stream, _ = gen_bench_stream.build_bench_stream(messages=50, seed=12)
+
+        tmp_path = write_temp_bin(stream)
+        try:
+            result = subprocess.run(
+                [
+                    str(cpp_cli()),
+                    "--bench-breakdown",
+                    "--json",
+                    "--repeat",
+                    "2",
+                    str(tmp_path),
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["parser"], "cpp_breakdown")
+        self.assertEqual(payload["bytes"], len(stream))
+        self.assertEqual(payload["events"], len(ref_parser.parse_stream(stream)))
+        self.assertEqual(payload["repeat"], 2)
+        self.assertEqual(len(payload["parse_ns"]), 2)
+        self.assertGreater(payload["median_parse_ns"], 0)
+        self.assertEqual(sum(row["messages"] for row in payload["message_types"].values()), 50)
+
+    def test_python_profile_script_json_reports_event_count(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "profile_python_parser.py"),
+                "--messages",
+                "50",
+                "--repeat",
+                "2",
+                "--json",
+            ],
+            text=True,
+            capture_output=True,
+            check=True,
+            cwd=ROOT,
+        )
+
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["dataset"]["messages"], 50)
+        self.assertEqual(payload["python"]["events"], 50)
+        self.assertEqual(payload["python"]["repeat"], 2)
+        self.assertGreater(payload["python"]["median_parse_ns"], 0)
+
+    def test_profile_parsers_smoke_without_rtl(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "profile_parsers.py"),
+                "--messages",
+                "50",
+                "--repeat",
+                "2",
+                "--skip-rtl",
+                "--build-cpp",
+                "--json",
+            ],
+            text=True,
+            capture_output=True,
+            check=True,
+            cwd=ROOT,
+        )
+
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["dataset"]["messages"], 50)
+        self.assertEqual(payload["python"]["events"], 50)
+        self.assertEqual(payload["cpp"]["events"], 50)
+        self.assertNotIn("rtl", payload)
+        self.assertGreater(payload["cpp"]["median_parse_ns"], 0)
+
     def test_benchmark_script_smoke_without_rtl(self) -> None:
         result = subprocess.run(
             [
@@ -440,6 +519,10 @@ class CppCliTests(unittest.TestCase):
         self.assertEqual(payload["bytes_accepted"], len(stream))
         self.assertEqual(payload["events"], len(ref_parser.parse_stream(stream)))
         self.assertGreaterEqual(payload["total_cycles"], payload["accepted_byte_cycles"])
+        self.assertIn("state_cycles", payload)
+        self.assertIn("message_types", payload)
+        self.assertIn("input_stall_cycles", payload)
+        self.assertIn("output_stall_cycles", payload)
 
 
 if __name__ == "__main__":
