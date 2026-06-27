@@ -11,7 +11,7 @@ struct TypeStats
   std::size_t bytes = 0;
 };
 
-std::vector<std::uint8_t> read_file(const char *input_path)
+std::vector<std::byte> read_file(const char *input_path)
 {
   std::ifstream input_file(input_path, std::ios::binary | std::ios::ate);
   if (not input_file)
@@ -24,12 +24,31 @@ std::vector<std::uint8_t> read_file(const char *input_path)
   const std::size_t len = static_cast<std::size_t>(file_size);
   input_file.seekg(0, std::ios::beg);
 
-  std::vector<std::uint8_t> bytes(len);
+  std::vector<std::byte> bytes(len);
   if (not bytes.empty())
     input_file.read(reinterpret_cast<char *>(bytes.data()), static_cast<std::streamsize>(len));
   if (not input_file)
     throw std::ios_base::failure(std::format("Cannot read file {}.", input_path));
   return bytes;
+}
+
+void report_parse_error(const ParseErr &err)
+{
+  std::println(std::cerr, "parse error at byte {}: {}", err.offset, err.message);
+}
+
+template<typename T>
+std::string stream_to_string(const T &value)
+{
+  std::ostringstream out;
+  out << value;
+  return out.str();
+}
+
+std::expected<std::vector<ItchEvent>, ParseErr> parse_stream(std::span<const std::byte> bytes)
+{
+  ItchParser parser(bytes.size() / MIN_MESSAGE_SIZE);
+  return parser.start(bytes);
 }
 
 double median_ns(std::vector<std::uint64_t> values)
@@ -108,33 +127,38 @@ void print_u64_array_json(const std::vector<std::uint64_t> &values)
   for (std::size_t i = 0; i < values.size(); ++i)
   {
     if (i)
-      std::cout << ',';
-    std::cout << values[i];
+      std::print(",");
+    std::print("{}", values[i]);
   }
 }
 
-void run_benchmark(const char *input_path, int repeat, bool json_output)
+int run_benchmark(const char *input_path, int repeat, bool json_output)
 {
   if (repeat <= 0)
     throw std::invalid_argument("--repeat must be greater than 0.");
 
-  const std::vector<std::uint8_t> bytes = read_file(input_path);
+  const std::vector<std::byte> bytes = read_file(input_path);
   std::vector<std::uint64_t> elapsed_ns;
   elapsed_ns.reserve(static_cast<std::size_t>(repeat));
   std::size_t events_parsed = 0;
 
   for (int i = 0; i < repeat; ++i)
   {
-    ItchParser parser(bytes.size() / MIN_MESSAGE_SIZE);
     const auto start = std::chrono::steady_clock::now();
-    parser.start(bytes);
+    const auto parsed = parse_stream(bytes);
     const auto stop = std::chrono::steady_clock::now();
+    if (!parsed)
+    {
+      report_parse_error(parsed.error());
+      return 1;
+    }
+
     elapsed_ns.push_back(static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start).count()));
 
     if (i == 0)
-      events_parsed = parser.events.size();
-    else if (events_parsed != parser.events.size())
+      events_parsed = parsed->size();
+    else if (events_parsed != parsed->size())
       throw std::runtime_error("Benchmark parse event count changed between repeats.");
   }
 
@@ -145,35 +169,31 @@ void run_benchmark(const char *input_path, int repeat, bool json_output)
 
   if (json_output)
   {
-    std::cout << "{\"parser\":\"cpp\",\"bytes\":" << bytes.size()
-              << ",\"events\":" << events_parsed
-              << ",\"repeat\":" << repeat
-              << ",\"elapsed_ns\":[";
+    std::print("{{\"parser\":\"cpp\",\"bytes\":{},\"events\":{},\"repeat\":{},\"elapsed_ns\":[",
+               bytes.size(), events_parsed, repeat);
     for (std::size_t i = 0; i < elapsed_ns.size(); ++i)
     {
       if (i)
-        std::cout << ',';
-      std::cout << elapsed_ns[i];
+        std::print(",");
+      std::print("{}", elapsed_ns[i]);
     }
-    std::cout << "],\"median_seconds\":" << median_seconds
-              << ",\"mb_per_sec\":" << mbps
-              << ",\"messages_per_sec\":" << msgps << "}\n";
-    return;
+    std::println("],\"median_seconds\":{},\"mb_per_sec\":{},\"messages_per_sec\":{}}}",
+                 median_seconds, mbps, msgps);
+    return 0;
   }
 
-  std::cout << "cpp " << bytes.size() << " bytes " << events_parsed
-            << " events median_seconds=" << median_seconds
-            << " MB/s=" << mbps
-            << " messages/s=" << msgps << '\n';
+  std::println("cpp {} bytes {} events median_seconds={} MB/s={} messages/s={}",
+               bytes.size(), events_parsed, median_seconds, mbps, msgps);
+  return 0;
 }
 
-void run_benchmark_breakdown(const char *input_path, int repeat, bool apply_lob, bool json_output)
+int run_benchmark_breakdown(const char *input_path, int repeat, bool apply_lob, bool json_output)
 {
   if (repeat <= 0)
     throw std::invalid_argument("--repeat must be greater than 0.");
 
   const auto read_start = std::chrono::steady_clock::now();
-  const std::vector<std::uint8_t> bytes = read_file(input_path);
+  const std::vector<std::byte> bytes = read_file(input_path);
   const auto read_stop = std::chrono::steady_clock::now();
   const std::uint64_t read_file_ns = static_cast<std::uint64_t>(
       std::chrono::duration_cast<std::chrono::nanoseconds>(read_stop - read_start).count());
@@ -205,8 +225,14 @@ void run_benchmark_breakdown(const char *input_path, int repeat, bool apply_lob,
         std::chrono::duration_cast<std::chrono::nanoseconds>(construct_stop - construct_start).count()));
 
     const auto parse_start = std::chrono::steady_clock::now();
-    parser.start(bytes);
+    const auto parsed = parser.start(bytes);
     const auto parse_stop = std::chrono::steady_clock::now();
+    if (!parsed)
+    {
+      report_parse_error(parsed.error());
+      return 1;
+    }
+
     const std::uint64_t this_parse_ns = static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(parse_stop - parse_start).count());
     parse_ns.push_back(this_parse_ns);
@@ -215,7 +241,7 @@ void run_benchmark_breakdown(const char *input_path, int repeat, bool apply_lob,
     {
       LOB lob;
       const auto lob_start = std::chrono::steady_clock::now();
-      for (const ItchEvent &event : parser.events)
+      for (const ItchEvent &event : *parsed)
         lob.apply(event);
       const auto lob_stop = std::chrono::steady_clock::now();
       const std::uint64_t this_lob_ns = static_cast<std::uint64_t>(
@@ -226,10 +252,10 @@ void run_benchmark_breakdown(const char *input_path, int repeat, bool apply_lob,
 
     if (i == 0)
     {
-      events_parsed = parser.events.size();
-      type_stats = collect_type_stats(parser.events);
+      events_parsed = parsed->size();
+      type_stats = collect_type_stats(*parsed);
     }
-    else if (events_parsed != parser.events.size())
+    else if (events_parsed != parsed->size())
       throw std::runtime_error("Benchmark parse event count changed between repeats.");
   }
 
@@ -240,52 +266,42 @@ void run_benchmark_breakdown(const char *input_path, int repeat, bool apply_lob,
 
   if (json_output)
   {
-    std::cout << "{\"parser\":\"cpp_breakdown\",\"bytes\":" << bytes.size()
-              << ",\"events\":" << events_parsed
-              << ",\"repeat\":" << repeat
-              << ",\"apply_lob\":" << (apply_lob ? "true" : "false")
-              << ",\"read_file_ns\":" << read_file_ns
-              << ",\"construct_ns\":[";
+    std::print("{{\"parser\":\"cpp_breakdown\",\"bytes\":{},\"events\":{},\"repeat\":{},\"apply_lob\":{},\"read_file_ns\":{},\"construct_ns\":[",
+               bytes.size(), events_parsed, repeat, apply_lob ? "true" : "false", read_file_ns);
     print_u64_array_json(construct_ns);
-    std::cout << "],\"parse_ns\":[";
+    std::print("],\"parse_ns\":[");
     print_u64_array_json(parse_ns);
-    std::cout << "],\"median_construct_ns\":" << median_ns(construct_ns)
-              << ",\"median_parse_ns\":" << med_parse_ns
-              << ",\"median_parse_seconds\":" << median_seconds
-              << ",\"median_ns_per_message\":" << (events_parsed ? med_parse_ns / static_cast<double>(events_parsed) : 0.0)
-              << ",\"mb_per_sec\":" << mbps
-              << ",\"messages_per_sec\":" << msgps;
+    std::print("],\"median_construct_ns\":{},\"median_parse_ns\":{},\"median_parse_seconds\":{},\"median_ns_per_message\":{},\"mb_per_sec\":{},\"messages_per_sec\":{}",
+               median_ns(construct_ns), med_parse_ns, median_seconds,
+               events_parsed ? med_parse_ns / static_cast<double>(events_parsed) : 0.0, mbps, msgps);
     if (apply_lob)
     {
       const double med_lob_ns = median_ns(lob_ns);
       const double med_parse_lob_ns = median_ns(parse_lob_ns);
       const double parse_lob_seconds = med_parse_lob_ns / 1'000'000'000.0;
-      std::cout << ",\"lob_apply_ns\":[";
+      std::print(",\"lob_apply_ns\":[");
       print_u64_array_json(lob_ns);
-      std::cout << "],\"median_lob_apply_ns\":" << med_lob_ns
-                << ",\"median_parse_lob_ns\":" << med_parse_lob_ns
-                << ",\"median_parse_lob_seconds\":" << parse_lob_seconds
-                << ",\"parse_lob_mb_per_sec\":" << (parse_lob_seconds > 0.0 ? (static_cast<double>(bytes.size()) / 1'000'000.0) / parse_lob_seconds : 0.0)
-                << ",\"parse_lob_messages_per_sec\":" << (parse_lob_seconds > 0.0 ? static_cast<double>(events_parsed) / parse_lob_seconds : 0.0);
+      std::print("],\"median_lob_apply_ns\":{},\"median_parse_lob_ns\":{},\"median_parse_lob_seconds\":{},\"parse_lob_mb_per_sec\":{},\"parse_lob_messages_per_sec\":{}",
+                 med_lob_ns, med_parse_lob_ns, parse_lob_seconds,
+                 parse_lob_seconds > 0.0 ? (static_cast<double>(bytes.size()) / 1'000'000.0) / parse_lob_seconds : 0.0,
+                 parse_lob_seconds > 0.0 ? static_cast<double>(events_parsed) / parse_lob_seconds : 0.0);
     }
-    std::cout << ",\"message_types\":{";
+    std::print(",\"message_types\":{{");
     for (std::size_t i = 0; i < type_stats.size(); ++i)
     {
       if (i)
-        std::cout << ',';
+        std::print(",");
       const TypeStats &stats = type_stats[i];
-      std::cout << "\"" << stats.type << "\":{\"name\":\"" << stats.name
-                << "\",\"messages\":" << stats.messages
-                << ",\"bytes\":" << stats.bytes << "}";
+      std::print("\"{}\":{{\"name\":\"{}\",\"messages\":{},\"bytes\":{}}}",
+                 stats.type, stats.name, stats.messages, stats.bytes);
     }
-    std::cout << "}}\n";
-    return;
+    std::println("}}}}");
+    return 0;
   }
 
-  std::cout << "cpp_breakdown " << bytes.size() << " bytes " << events_parsed
-            << " events median_parse_seconds=" << median_seconds
-            << " MB/s=" << mbps
-            << " messages/s=" << msgps << '\n';
+  std::println("cpp_breakdown {} bytes {} events median_parse_seconds={} MB/s={} messages/s={}",
+               bytes.size(), events_parsed, median_seconds, mbps, msgps);
+  return 0;
 }
 
 int main(int argc, char *argv[])
@@ -337,32 +353,30 @@ int main(int argc, char *argv[])
     throw std::invalid_argument("--apply-lob requires --bench-breakdown.");
 
   if (bench)
-  {
-    run_benchmark(input_path, repeat, json_output);
-    return 0;
-  }
+    return run_benchmark(input_path, repeat, json_output);
   if (bench_breakdown)
+    return run_benchmark_breakdown(input_path, repeat, apply_lob, json_output);
+
+  const std::vector<std::byte> bytes = read_file(input_path);
+  const auto parsed = parse_stream(bytes);
+  if (!parsed)
   {
-    run_benchmark_breakdown(input_path, repeat, apply_lob, json_output);
-    return 0;
+    report_parse_error(parsed.error());
+    return 1;
   }
 
-  const std::vector<std::uint8_t> bytes = read_file(input_path);
-
-  ItchParser parser(bytes.size() / MIN_MESSAGE_SIZE);
-  parser.start(bytes);
   LOB lob;
-  for (const ItchEvent &event : parser.events)
+  for (const ItchEvent &event : *parsed)
   {
-    std::cout << event << std::endl;
+    std::println("{}", stream_to_string(event));
     if (debug_lob)
     {
       lob.apply(event);
       const auto rows = lob.snapshot();
-      std::cerr << "[lob] applied " << event << '\n';
-      std::cerr << "[lob] active_orders=" << rows.size() << '\n';
+      std::println(std::cerr, "[lob] applied {}", stream_to_string(event));
+      std::println(std::cerr, "[lob] active_orders={}", rows.size());
       for (const auto &[order_ref, order] : rows)
-        std::cerr << "[lob] order " << order_ref << ' ' << order << '\n';
+        std::println(std::cerr, "[lob] order {} {}", order_ref, stream_to_string(order));
     }
   }
   return 0;

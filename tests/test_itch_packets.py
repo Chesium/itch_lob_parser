@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import pathlib
 import json
 import shutil
@@ -30,6 +31,21 @@ def cpp_cli() -> pathlib.Path:
         CPP_BUILD / "MinSizeRel" / "itch_cli.exe",
     ]
     return next((candidate for candidate in candidates if candidate.exists()), candidates[0])
+
+
+def cpp_build_env() -> dict[str, str]:
+    env = os.environ.copy()
+    gcc16_root = pathlib.Path.home() / "opt" / "gcc-16.1.0"
+    gcc16_bin = gcc16_root / "bin"
+    if gcc16_bin.exists():
+        env["PATH"] = f"{gcc16_bin}{os.pathsep}{env.get('PATH', '')}"
+        lib_paths = [str(gcc16_root / "lib64"), str(gcc16_root / "lib")]
+        existing = env.get("LD_LIBRARY_PATH", "")
+        env["LD_LIBRARY_PATH"] = os.pathsep.join(lib_paths + ([existing] if existing else []))
+    cmake_bin = pathlib.Path.home() / ".local" / "bin"
+    if (cmake_bin / "cmake").exists():
+        env["PATH"] = f"{cmake_bin}{os.pathsep}{env.get('PATH', '')}"
+    return env
 
 
 def write_temp_bin(payload: bytes) -> pathlib.Path:
@@ -276,8 +292,19 @@ class ReferenceParserTests(unittest.TestCase):
 class CppCliTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        subprocess.run(["cmake", "-S", str(ROOT), "-B", str(CPP_BUILD)], check=True)
-        subprocess.run(["cmake", "--build", str(CPP_BUILD)], check=True)
+        cmake_cmd = [
+            "cmake",
+            "-S",
+            str(ROOT),
+            "-B",
+            str(CPP_BUILD),
+            "-G",
+            "Ninja",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_CXX_COMPILER=g++-16.1",
+        ]
+        subprocess.run(cmake_cmd, check=True, env=cpp_build_env())
+        subprocess.run(["cmake", "--build", str(CPP_BUILD)], check=True, env=cpp_build_env())
 
     def test_cli_rejects_truncated_stream(self) -> None:
         packet = packet_gen.gen_add(1, 2, 3, 4, "B", 5, "AAPL", 6)
@@ -294,6 +321,39 @@ class CppCliTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Unexpected end of stream", result.stderr)
+        self.assertIn("parse error at byte", result.stderr)
+
+    def test_cli_rejects_unknown_message_type(self) -> None:
+        tmp_path = write_temp_bin(b"Z")
+        try:
+            result = subprocess.run(
+                [str(cpp_cli()), str(tmp_path)],
+                text=True,
+                capture_output=True,
+            )
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Unknown MsgType", result.stderr)
+        self.assertIn("parse error at byte 0", result.stderr)
+
+    def test_cli_rejects_bad_add_side(self) -> None:
+        bad_side = bytearray(packet_gen.gen_add(1, 2, 3, 4, "B", 5, "AAPL", 6))
+        bad_side[19] = ord("Q")
+        tmp_path = write_temp_bin(bytes(bad_side))
+        try:
+            result = subprocess.run(
+                [str(cpp_cli()), str(tmp_path)],
+                text=True,
+                capture_output=True,
+            )
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Unknown Add-Messgae Side Symbol", result.stderr)
+        self.assertIn("parse error at byte 19", result.stderr)
 
     def test_cli_output_matches_reference_parser(self) -> None:
         stream = packet_gen.gen_stream(

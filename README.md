@@ -50,6 +50,7 @@ deterministic stream (`python3 scripts/gen_bench_stream.py --messages 10000
 | GCC 13.3 |     0.000229s | 1,257.49 | 43,662,800.00 | header/C++20 baseline (pre-modules branch)  |
 | GCC 16.1 |     0.000140s | 2,054.08 | 71,322,100.00 | header/C++20 baseline (pre-modules branch)  |
 | GCC 16.1 |     0.000151s | 1,910.70 | 66,343,800.00 | C++23 modules, `build/itch_cli --bench`     |
+| GCC 16.1 |     0.000209s | 1,375.48 | 47,759,825.00 | C++23 modules + `expected`/endian refactor  |
 
 These local C++ runs are useful for compiler comparison, but the sub-millisecond
 times show visible run-to-run noise and are not directly comparable to the
@@ -234,8 +235,16 @@ exe = gen.execute(order_ref, shares=25)
 
 The C++ stack is a C++23 named-module experiment: module interfaces live in
 `cpp/*.cppm`, implementation units in `cpp/*.cpp`, and the CLI uses
-`import std; import itch;`. GCC 16.1 plus Ninja is the supported Linux build
-path on this branch.
+`import std; import itch;`. The parser API is:
+
+```cpp
+std::expected<std::vector<ItchEvent>, ParseErr> start(std::span<const std::byte> bytes);
+```
+
+`ParseErr` carries `kind`, `offset`, and `message` for malformed streams.
+Integer fields are read with big-endian helpers built on `std::memcpy` and
+`std::byteswap`. GCC 16.1 plus Ninja is the supported Linux build path on this
+branch.
 
 Linux (GCC 16.1):
 
