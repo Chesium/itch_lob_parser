@@ -40,6 +40,23 @@ Example result run on a Windows 11 machine with AMD Ryzen AI 9 365:
 | rtl @100MHz | 298000 cycles |  96.64 | 3,355,704.70 | measured cycles, ideal hardware |
 | rtl @250MHz | 298000 cycles | 241.61 | 8,389,261.74 | measured cycles, ideal hardware |
 
+Local WSL/GCC toolchain check on the same 10,000-message, 288,000-byte
+deterministic stream (`python3 scripts/gen_bench_stream.py --messages 10000
+--out tmp/bench_stream.bin`, SHA256
+`72c454a6562cbba07d51a7c6320b85ba551c179bf92564989b5387e24114829c`):
+
+| Compiler | Time (median) |     MB/s |        Msg/s | Method                                      |
+| -------- | ------------: | -------: | -----------: | ------------------------------------------- |
+| GCC 13.3 |     0.000229s | 1,257.49 | 43,662,800.00 | Release/Ninja `build-gcc13/itch_cli --bench` |
+| GCC 16.1 |     0.000140s | 2,054.08 | 71,322,100.00 | Release/Ninja `build-gcc16/itch_cli --bench` |
+
+These local C++ runs are useful for compiler comparison, but the sub-millisecond
+times show visible run-to-run noise and are not directly comparable to the
+Windows reference machine above. Both builds used CMake `Release` defaults for
+GNU C++ (`CMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG`) with the project's C++20
+requirement; no `-march=native`, LTO, PGO, `-Ofast`, or other custom
+optimization flags were enabled.
+
 Use `--skip-rtl` to compare only the Python and C++ parsers.
 
 ## What Is Implemented
