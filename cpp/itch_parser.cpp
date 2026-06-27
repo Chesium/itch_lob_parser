@@ -1,9 +1,8 @@
+module itch.parser;
 
-#include "itch_parser.hpp"
-#include <stdexcept>
-#include <format>
+import std;
 
-ItchParser::ItchParser(size_t cache_size)
+ItchParser::ItchParser(std::size_t cache_size)
 {
   this->events.reserve(cache_size);
 }
@@ -45,40 +44,40 @@ void ItchParser::start(std::span<const std::uint8_t> bytes)
   }
 }
 
-uint8_t ItchParser::parseByte()
+std::uint8_t ItchParser::parseByte()
 {
   if (this->cursor >= this->stream.size())
     throw std::out_of_range(std::format("Unexpected end of stream at byte {}.", this->cursor));
   return this->stream[this->cursor++];
 }
 
-uint16_t ItchParser::parseU16()
+std::uint16_t ItchParser::parseU16()
 {
-  uint16_t b1 = parseByte();
-  uint16_t b2 = parseByte();
-  return static_cast<uint16_t>((b1 << 8) | b2);
+  std::uint16_t b1 = parseByte();
+  std::uint16_t b2 = parseByte();
+  return static_cast<std::uint16_t>((b1 << 8) | b2);
 }
 
-uint32_t ItchParser::parseU32()
+std::uint32_t ItchParser::parseU32()
 {
-  uint32_t r = 0;
-  for (size_t i = 0; i < 4; i++)
+  std::uint32_t r = 0;
+  for (std::size_t i = 0; i < 4; i++)
     r = (r << 8) | parseByte();
   return r;
 }
 
-uint64_t ItchParser::parseU48()
+std::uint64_t ItchParser::parseU48()
 {
-  uint64_t r = 0;
-  for (size_t i = 0; i < 6; i++)
+  std::uint64_t r = 0;
+  for (std::size_t i = 0; i < 6; i++)
     r = (r << 8) | parseByte();
   return r;
 }
 
-uint64_t ItchParser::parseU64()
+std::uint64_t ItchParser::parseU64()
 {
-  uint64_t r = 0;
-  for (size_t i = 0; i < 8; i++)
+  std::uint64_t r = 0;
+  for (std::size_t i = 0; i < 8; i++)
     r = (r << 8) | parseByte();
   return r;
 }

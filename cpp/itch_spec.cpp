@@ -1,6 +1,6 @@
-#include "itch_spec.hpp"
-#include <iostream>
-#include <iomanip>
+module itch.spec;
+
+import std;
 
 char evkind2char(EventKind kind)
 {

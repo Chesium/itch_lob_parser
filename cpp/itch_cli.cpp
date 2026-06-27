@@ -1,17 +1,5 @@
-#include <fstream>
-#include <stdexcept>
-#include <format>
-#include <algorithm>
-#include <chrono>
-#include <cstdint>
-#include <iostream>
-#include <string_view>
-#include <vector>
-#include <array>
-
-#include "itch_spec.hpp"
-#include "itch_parser.hpp"
-#include "lob.hpp"
+import std;
+import itch;
 
 constexpr std::size_t MIN_MESSAGE_SIZE = 19;
 

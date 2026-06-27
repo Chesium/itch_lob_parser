@@ -1,11 +1,8 @@
-#pragma once
+export module itch.spec;
 
-#include <array>
-#include <cstdint>
-#include <optional>
-#include <ostream>
+import std;
 
-enum class EventKind : std::uint8_t
+export enum class EventKind : std::uint8_t
 {
   ADD = 0,
   EXECUTE = 1,
@@ -15,15 +12,15 @@ enum class EventKind : std::uint8_t
   ERROR = 7
 };
 
-char evkind2char(EventKind kind);
+export char evkind2char(EventKind kind);
 
-enum class Side : std::uint8_t
+export enum class Side : std::uint8_t
 {
   BUY = 0,
   SELL = 1
 };
 
-namespace EventField
+export namespace EventField
 {
 inline constexpr std::uint8_t ORDER_REF = 1u << 0;
 inline constexpr std::uint8_t NEW_ORDER_REF = 1u << 1;
@@ -34,7 +31,7 @@ inline constexpr std::uint8_t MATCH_NUMBER = 1u << 5;
 inline constexpr std::uint8_t STOCK = 1u << 6;
 } // namespace EventField
 
-class ItchEvent
+export class ItchEvent
 {
 public:
   EventKind kind;
@@ -49,5 +46,6 @@ public:
   std::uint64_t match_number = 0;
   std::array<char, 8> stock{};
   std::uint8_t valid_mask = 0;
-  friend std::ostream &operator<<(std::ostream &out, const ItchEvent &ev);
 };
+
+export std::ostream &operator<<(std::ostream &out, const ItchEvent &ev);

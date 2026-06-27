@@ -2,7 +2,7 @@
 
 ITCH LOB Parser is a compact reference implementation of a simplified Nasdaq
 ITCH order-lifecycle feed. The same generated binary stream is parsed by a
-Python model, a C++20 CLI, and a SystemVerilog RTL core so behavior and
+Python model, a C++23 module-based CLI, and a SystemVerilog RTL core so behavior
 throughput can be compared directly.
 
 ## Quantifiable Results
@@ -47,15 +47,16 @@ deterministic stream (`python3 scripts/gen_bench_stream.py --messages 10000
 
 | Compiler | Time (median) |     MB/s |        Msg/s | Method                                      |
 | -------- | ------------: | -------: | -----------: | ------------------------------------------- |
-| GCC 13.3 |     0.000229s | 1,257.49 | 43,662,800.00 | Release/Ninja `build-gcc13/itch_cli --bench` |
-| GCC 16.1 |     0.000140s | 2,054.08 | 71,322,100.00 | Release/Ninja `build-gcc16/itch_cli --bench` |
+| GCC 13.3 |     0.000229s | 1,257.49 | 43,662,800.00 | header/C++20 baseline (pre-modules branch)  |
+| GCC 16.1 |     0.000140s | 2,054.08 | 71,322,100.00 | header/C++20 baseline (pre-modules branch)  |
+| GCC 16.1 |     0.000151s | 1,910.70 | 66,343,800.00 | C++23 modules, `build/itch_cli --bench`     |
 
 These local C++ runs are useful for compiler comparison, but the sub-millisecond
 times show visible run-to-run noise and are not directly comparable to the
-Windows reference machine above. Both builds used CMake `Release` defaults for
-GNU C++ (`CMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG`) with the project's C++20
-requirement; no `-march=native`, LTO, PGO, `-Ofast`, or other custom
-optimization flags were enabled.
+Windows reference machine above. The module build uses CMake `Release` defaults
+for GNU C++ (`CMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG`) with C++23 and `import std`;
+no `-march=native`, LTO, PGO, `-Ofast`, or other custom optimization flags were
+enabled.
 
 Use `--skip-rtl` to compare only the Python and C++ parsers.
 
@@ -135,7 +136,8 @@ mask records which payload fields are meaningful for each event kind.
 
 - `scripts/packet_gen.py`: binary packet and deterministic stream generator.
 - `scripts/ref_parser.py`: Python reference parser and tiny order book model.
-- `cpp/`: C++20 parser library plus `itch_cli` for smoke tests and benchmarks.
+- `cpp/`: C++23 named-module parser library (`itch.spec`, `itch.parser`,
+  `itch.lob`, umbrella `itch`) plus `itch_cli` for smoke tests and benchmarks.
 - `rtl/`: SystemVerilog parser cores and shared protocol package.
 - `scripts/cocotb/`: cocotb/Verilator validation and RTL benchmark harness.
 - `scripts/vivado/`: optional Vivado xsim, synthesis, and post-synthesis
@@ -155,8 +157,10 @@ uv sync
 The original flow assumes these tools are available on `PATH`:
 
 - `uv`
-- `cmake`
-- a C++20 compiler such as `g++` or `clang++`
+- `cmake` 3.30 or newer (CMake 4.x via `uv tool install cmake` works well for
+  experimental `import std` support)
+- `ninja`
+- GCC 16.1 with suffixed binaries such as `g++-16.1` (see C++ CLI below)
 - `make`
 - `verilator`
 
@@ -228,24 +232,33 @@ exe = gen.execute(order_ref, shares=25)
 
 ### C++ CLI
 
-Linux:
+The C++ stack is a C++23 named-module experiment: module interfaces live in
+`cpp/*.cppm`, implementation units in `cpp/*.cpp`, and the CLI uses
+`import std; import itch;`. GCC 16.1 plus Ninja is the supported Linux build
+path on this branch.
+
+Linux (GCC 16.1):
 
 ```bash
-cmake -S . -B build
+source ~/env-gcc16.sh
+export PATH="$HOME/.local/bin:$PATH"   # if using `uv tool install cmake`
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_COMPILER=g++-16.1
 cmake --build build
 uv run python scripts/gen_cpp_parser_fixtures.py
 ./build/itch_cli scripts/data/smoke_all_types.bin
 ./build/itch_cli scripts/data/max_width_add.bin
 ```
 
+`~/env-gcc16.sh` prepends `$HOME/opt/gcc-16.1.0/bin` to `PATH`. The compiler
+binaries are version-suffixed (`gcc-16.1`, `g++-16.1`), so pass
+`-DCMAKE_CXX_COMPILER=g++-16.1` explicitly.
+
 Windows:
 
-```bat
-cmd /c "call <MSVC Installation Path>\VC\Auxiliary\Build\vcvarsall.bat x64 && cmake -S . -B build-msvc && cmake --build build-msvc"
-uv run python scripts/gen_cpp_parser_fixtures.py
-build-msvc\itch_cli.exe scripts\data\smoke_all_types.bin
-build-msvc\itch_cli.exe scripts\data\max_width_add.bin
-```
+The module refactor is validated on Linux with GCC 16.1. MSVC module support may
+work with Visual Studio 2022 17.4+ and Ninja, but it is not the primary path on
+this branch.
 
 ### RTL Cocotb Flow
 
@@ -340,7 +353,8 @@ deterministic packet generator as the benchmark.
 
 Prerequisites:
 
-- Required: `uv`, Python 3.12+, `cmake`, a C++20 compiler, and `make`.
+- Required: `uv`, Python 3.12+, CMake 3.30+, Ninja, GCC 16.1 (`g++-16.1`), and
+  `make`.
 - Required for RTL profiling: `verilator`.
 - Optional for C++ callgraph profiling: `valgrind`. This WSL environment was
   checked with `valgrind-3.22.0`.

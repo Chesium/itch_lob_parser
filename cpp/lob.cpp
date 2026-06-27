@@ -1,8 +1,6 @@
-#include "lob.hpp"
-#include <format>
-#include <algorithm>
-#include <iomanip>
-#include <ostream>
+module itch.lob;
+
+import std;
 
 void LOB::apply(const ItchEvent &ev)
 {
@@ -40,7 +38,7 @@ void LOB::addOrder(const ItchEvent &ev)
   this->orders.insert({ev.order_ref, Order{ev.stock_locate, ev.stock, *ev.side, ev.qty, ev.price}});
 }
 
-void LOB::reduceOrder(uint64_t order_ref, uint32_t qty, const std::string &action)
+void LOB::reduceOrder(std::uint64_t order_ref, std::uint32_t qty, const std::string &action)
 {
   auto it = this->orders.find(order_ref);
   if (it == this->orders.end())
@@ -57,7 +55,7 @@ void LOB::reduceOrder(uint64_t order_ref, uint32_t qty, const std::string &actio
   it->second.qty -= qty;
 }
 
-void LOB::deleteOrder(uint64_t order_ref)
+void LOB::deleteOrder(std::uint64_t order_ref)
 {
   auto it = this->orders.find(order_ref);
   if (it == this->orders.end())
@@ -65,7 +63,7 @@ void LOB::deleteOrder(uint64_t order_ref)
   this->orders.erase(it);
 }
 
-void LOB::replaceOrder(uint64_t order_ref, uint64_t new_order_ref, uint32_t qty, uint32_t price)
+void LOB::replaceOrder(std::uint64_t order_ref, std::uint64_t new_order_ref, std::uint32_t qty, std::uint32_t price)
 {
   auto it = this->orders.find(order_ref);
   if (it == this->orders.end())
@@ -82,9 +80,9 @@ void LOB::replaceOrder(uint64_t order_ref, uint64_t new_order_ref, uint32_t qty,
   this->orders.insert({new_order_ref, replacement});
 }
 
-std::vector<std::pair<uint64_t, Order>> LOB::snapshot() const
+std::vector<std::pair<std::uint64_t, Order>> LOB::snapshot() const
 {
-  std::vector<std::pair<uint64_t, Order>> rows(this->orders.begin(), this->orders.end());
+  std::vector<std::pair<std::uint64_t, Order>> rows(this->orders.begin(), this->orders.end());
   std::sort(rows.begin(), rows.end(), [](const auto &lhs, const auto &rhs) {
     return lhs.first < rhs.first;
   });

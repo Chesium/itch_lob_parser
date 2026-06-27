@@ -1,29 +1,25 @@
-#pragma once
+export module itch.parser;
 
-#include <cstdint>
-#include <cstdlib>
-#include <span>
-#include <vector>
+import std;
+import itch.spec;
 
-#include "itch_spec.hpp"
-
-class ItchParser
+export class ItchParser
 {
 public:
-  ItchParser(size_t cache_size);
+  ItchParser(std::size_t cache_size);
   void reset();
   void start(std::span<const std::uint8_t> bytes);
   std::vector<ItchEvent> events;
 
 private:
   std::span<const std::uint8_t> stream;
-  size_t cursor;
+  std::size_t cursor;
 
-  uint8_t parseByte();
-  uint16_t parseU16();
-  uint32_t parseU32();
-  uint64_t parseU48();
-  uint64_t parseU64();
+  std::uint8_t parseByte();
+  std::uint16_t parseU16();
+  std::uint32_t parseU32();
+  std::uint64_t parseU48();
+  std::uint64_t parseU64();
   void parseHeader(ItchEvent *ev);
   void parseAdd(ItchEvent *ev);
   void parseExecute(ItchEvent *ev);
